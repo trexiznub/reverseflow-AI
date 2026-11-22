@@ -32,7 +32,24 @@ def client():
     for p in (TEST_DB, Path(str(TEST_DB) + "-wal"), Path(str(TEST_DB) + "-shm")):
         p.unlink(missing_ok=True)
     with TestClient(app) as c:
+        # Startup prepares the demo in a background thread; wait for it.
+        t0 = time.time()
+        while not c.get("/api/health").json().get("ready"):
+            assert time.time() - t0 < 300, "demo did not become ready"
+            time.sleep(0.5)
         yield c
+
+
+def test_api_waits_for_bootstrap(client):
+    """While the demo is being prepared, API calls get a clear 503; health stays up for the host's checks."""
+    from app import bootstrap
+    bootstrap._ready.clear()
+    try:
+        r = client.get("/api/meta", headers=OPS)
+        assert r.status_code == 503 and r.json()["detail"] == "The demo is getting ready"
+        assert client.get("/api/health").status_code == 200
+    finally:
+        bootstrap._ready.set()
 
 
 def wait_run(client, run_id, timeout=90):

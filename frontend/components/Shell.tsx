@@ -184,6 +184,8 @@ export function Shell({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => setMobile(false), [path]);
 
+  // The server answers 503 while it prepares the demo (first start, or after a reset).
+  const booting = metaError?.status === 503 || (!!meta?.status && !meta.status.ready);
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
 
   return (
@@ -234,7 +236,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      {metaError && (
+      {metaError && metaError.status !== 503 && (
         IS_HOSTED ? (
           <div className="border-b border-line bg-canvas px-6 py-2.5 text-[13px] text-ink-700">
             <span className="mr-2 inline-block h-1.5 w-1.5 animate-blink rounded-full bg-warn-500" />Waking up the demo server. This takes about a minute on the free plan; the page will load by itself.
@@ -245,10 +247,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         )
       )}
-      {meta && meta.status && !meta.status.ready && (
-        <div className="border-b border-line bg-canvas px-6 py-2.5 text-[13px] text-ink-700">Getting the demo ready: {meta.status.detail || meta.status.state}…</div>
-      )}
-      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 lg:px-10 lg:py-10">{children}</main>
+      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 lg:px-10 lg:py-10">{booting ? <GettingReady /> : children}</main>
       <footer className="border-t border-line">
         <div className="label mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-5 lg:px-10">
           <span>© 2026 ReverseFlow</span>
@@ -269,5 +268,19 @@ function MobileDetailSwitch() {
     <button onClick={() => setDetail(!detail)} className={clsx("relative h-6 w-11 rounded-full border transition-colors", detail ? "border-paper bg-paper" : "border-line-strong")} aria-label="Show technical details">
       <span className={clsx("absolute top-[2px] h-[18px] w-[18px] rounded-full transition-all", detail ? "left-[21px] bg-black" : "left-[2px] bg-ink-500")} />
     </button>
+  );
+}
+
+function GettingReady() {
+  return (
+    <div className="py-10">
+      <div className="label mb-5 flex items-center gap-2"><span className="h-1.5 w-1.5 animate-blink rounded-full bg-warn-500" />Starting up</div>
+      <h1 className="display text-[44px] text-ink-900 sm:text-[72px]">Getting the<br />demo ready.</h1>
+      <p className="mt-6 max-w-xl text-[16px] leading-relaxed text-ink-500">
+        The server is building the demo data, training its models and running the six agents for the first time.
+        {IS_HOSTED ? " On the free hosting plan this can take a few minutes." : " This takes about half a minute."} This page opens by itself when it's done.
+      </p>
+      <div className="mt-8 h-1 max-w-xl overflow-hidden rounded-full bg-canvas"><div className="h-full w-1/3 rounded-full bg-ink-900" style={{ animation: "slide 1.6s ease-in-out infinite" }} /></div>
+    </div>
   );
 }

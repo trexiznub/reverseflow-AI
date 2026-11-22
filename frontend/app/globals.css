@@ -83,3 +83,5 @@ input::placeholder, textarea::placeholder { color: #5E5E5E; }
 .skeleton { position: relative; overflow: hidden; background: #121212; }
 .skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.05), transparent); animation: shimmer 1.4s infinite; }
+
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }

@@ -37,10 +37,10 @@ export function Providers({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshMeta();
-    const t = setInterval(() => { if (!meta) refreshMeta(); }, 4000);
+    const t = setInterval(() => { if (!meta || metaError) refreshMeta(); }, 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshMeta, !!meta]);
+  }, [refreshMeta, !!meta, !!metaError]);
 
   const switchUser = (id: string) => {
     if (id === getUserId()) return;
