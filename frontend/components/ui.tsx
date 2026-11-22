@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronDown, HelpCircle, Inbox, Loader2, RefreshCw, X } 
 import { ReactNode, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useSession } from "./providers";
+import { IS_HOSTED } from "@/lib/api";
 
 export function Card({ children, className, pad = true }: { children: ReactNode; className?: string; pad?: boolean }) {
   return <div className={clsx("rounded border border-line bg-white", pad && "p-5", className)}>{children}</div>;
@@ -197,9 +198,9 @@ export function ErrorState({ error, onRetry }: { error: any; onRetry?: () => voi
     <Card className="flex items-start gap-3 border-[#4A2620] bg-bad-50">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-bad-600" />
       <div className="flex-1 text-[13px]">
-        <div className="font-semibold text-ink-900">{offline ? "Can't reach the server" : forbidden ? "This page isn't available for your role" : "Something went wrong"}</div>
-        <div className="mt-0.5 text-ink-700">{offline ? "The data service isn't running. Start it and this page will load." : error?.message || String(error)}</div>
-        {offline && <div className="mt-1 font-mono text-xs text-ink-500">cd backend &amp;&amp; .venv/bin/uvicorn app.main:app --port 8040</div>}
+        <div className="font-semibold text-ink-900">{offline ? (IS_HOSTED ? "The server is waking up" : "Can't reach the server") : forbidden ? "This page isn't available for your role" : "Something went wrong"}</div>
+        <div className="mt-0.5 text-ink-700">{offline ? (IS_HOSTED ? "The demo runs on a free server that sleeps when nobody is using it. It takes about a minute to start, then press Try again." : "The data service isn't running. Start it and this page will load.") : error?.message || String(error)}</div>
+        {offline && !IS_HOSTED && <div className="mt-1 font-mono text-xs text-ink-500">cd backend &amp;&amp; .venv/bin/uvicorn app.main:app --port 8040</div>}
         {forbidden && <div className="mt-1 text-xs text-ink-500">Switch to another person from the menu in the top-right corner.</div>}
       </div>
       {onRetry && !forbidden && <Button size="sm" onClick={onRetry}><RefreshCw className="h-3 w-3" />Try again</Button>}

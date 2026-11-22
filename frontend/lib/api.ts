@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getUserId } from "./session";
 
 export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8040";
+/** True when the backend is a hosted service (for example Render), not a local process. */
+export const IS_HOSTED = !/localhost|127\.0\.0\.1/.test(API);
 
 export class ApiError extends Error {
   status: number;

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { day, ROLE_LABEL } from "@/lib/format";
+import { IS_HOSTED } from "@/lib/api";
 import { Wordmark } from "./Logo";
 import { useSession } from "./providers";
 
@@ -234,9 +235,15 @@ export function Shell({ children }: { children: ReactNode }) {
       )}
 
       {metaError && (
-        <div className="border-b border-[#4A2620] bg-bad-50 px-6 py-2.5 text-[13px] text-bad-700">
-          Can't reach the data service. Start it with <span className="font-mono">cd backend && .venv/bin/uvicorn app.main:app --port 8040</span>
-        </div>
+        IS_HOSTED ? (
+          <div className="border-b border-line bg-canvas px-6 py-2.5 text-[13px] text-ink-700">
+            <span className="mr-2 inline-block h-1.5 w-1.5 animate-blink rounded-full bg-warn-500" />Waking up the demo server. This takes about a minute on the free plan; the page will load by itself.
+          </div>
+        ) : (
+          <div className="border-b border-[#4A2620] bg-bad-50 px-6 py-2.5 text-[13px] text-bad-700">
+            Can't reach the data service. Start it with <span className="font-mono">cd backend && .venv/bin/uvicorn app.main:app --port 8040</span>
+          </div>
+        )
       )}
       {meta && meta.status && !meta.status.ready && (
         <div className="border-b border-line bg-canvas px-6 py-2.5 text-[13px] text-ink-700">Getting the demo ready: {meta.status.detail || meta.status.state}…</div>

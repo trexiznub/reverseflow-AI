@@ -1,5 +1,6 @@
 "use client";
 import clsx from "clsx";
+import Link from "next/link";
 import { Download, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -179,7 +180,7 @@ export default function Twin() {
                   <div className="mt-2 text-[22px] font-semibold leading-snug tracking-tight">
                     {bestPlan === "baseline" ? "No change needed. Today's set-up copes." : <>Go with <span className="underline decoration-ink-500 underline-offset-4">{SC_LABEL[bestPlan]}</span>. It cuts the value lost to waiting from {inr(res.scenarios.baseline.kpis.value_at_risk.mean, true)} to {inr(res.scenarios[bestPlan].kpis.value_at_risk.mean, true)}.</>}
                   </div>
-                  <div className="mt-2 text-[13px] text-ink-500">Approving the matching actions is done on the <a href="/governance" className="text-blue-600">Decisions</a> page.</div>
+                  <div className="mt-2 text-[13px] text-ink-500">Approving the matching actions is done on the <Link href="/governance" className="text-blue-600">Decisions</Link> page.</div>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

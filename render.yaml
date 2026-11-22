@@ -1,0 +1,18 @@
+# Render Blueprint for the REVERSEFLOW backend (free web service).
+# The SQLite demo database is rebuilt from the deterministic seed on each
+# start (about 40 seconds), because the free tier has no persistent disk.
+services:
+  - type: web
+    name: reverseflow-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      - key: CORS_ORIGINS
+        value: https://trexiznub.github.io,http://localhost:3000,http://127.0.0.1:3000

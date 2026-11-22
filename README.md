@@ -112,6 +112,12 @@ cd backend && .venv/bin/python -m app.seed.generate
 
 No paid API is needed. With no LLM configured, explanations come from deterministic evidence templates and are labelled as such.
 
+## Deployment (GitHub Pages + Render)
+
+* **Backend** runs on Render's free tier from `render.yaml` (Blueprint). Free services sleep after about 15 minutes idle; the first request then takes about a minute, and the demo data is rebuilt from the seed on each start.
+* **Frontend** is built as a static site by `.github/workflows/pages.yml` on every push to `main` and published to GitHub Pages at `https://trexiznub.github.io/reverseflow-AI/`. The backend address defaults to `https://reverseflow-api.onrender.com`; set a repository variable `API_URL` to override it.
+* Local development is unchanged: the static export only turns on when the workflow sets `PAGES_BASE_PATH`.
+
 ## Tests
 
 ```bash
