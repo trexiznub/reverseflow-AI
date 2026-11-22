@@ -34,7 +34,7 @@ jobs:
           PAGES_BASE_PATH: /${{ github.event.repository.name }}
           # Public URL of the backend on Render. Override with a repository
           # variable named API_URL if the Render service gets a different address.
-          NEXT_PUBLIC_API_URL: ${{ vars.API_URL || 'https://reverseflow-api.onrender.com' }}
+          NEXT_PUBLIC_API_URL: ${{ vars.API_URL || 'https://reverseflow-ai.onrender.com' }}
       - run: touch out/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

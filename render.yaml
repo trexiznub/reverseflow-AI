@@ -3,7 +3,7 @@
 # start (about 40 seconds), because the free tier has no persistent disk.
 services:
   - type: web
-    name: reverseflow-api
+    name: reverseflow-ai
     runtime: python
     plan: free
     rootDir: backend
