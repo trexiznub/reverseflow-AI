@@ -1,6 +1,6 @@
 # Render Blueprint for the REVERSEFLOW backend (free web service).
-# The SQLite demo database is rebuilt from the deterministic seed on each
-# start (about 40 seconds), because the free tier has no persistent disk.
+# The free tier has no persistent disk, so on each start the backend restores
+# the prepared demo in backend/snapshot/ (seconds) instead of rebuilding it.
 services:
   - type: web
     name: reverseflow-ai

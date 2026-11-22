@@ -82,7 +82,7 @@ cd frontend && npm run dev
 
 Open http://localhost:3000. API docs: http://localhost:8040/docs.
 
-**First start** generates the synthetic dataset, trains the NLP and anomaly models and runs the first six-agent cycle (about 30–40 seconds). Later starts reuse the database.
+**First start** restores the prepared demo from `backend/snapshot/` in a few seconds (or, without it, generates the dataset, trains the models and runs the first agent cycle in about 30–40 seconds). Later starts reuse the database.
 
 ### Database & synthetic data
 
@@ -114,7 +114,8 @@ No paid API is needed. With no LLM configured, explanations come from determinis
 
 ## Deployment (GitHub Pages + Render)
 
-* **Backend** runs on Render's free tier from `render.yaml` (Blueprint). Free services sleep after about 15 minutes idle; the first request then takes about a minute, and the demo data is rebuilt from the seed on each start.
+* **Backend** runs on Render's free tier (settings in `render.yaml`). Free services sleep after about 15 minutes idle; the next visit wakes them up, which takes about a minute.
+* **Fast start.** `backend/snapshot/` holds a prepared copy of the demo (compressed database + trained models, about 8 MB). A fresh server, and **Settings → Reset the demo**, restore it in seconds instead of regenerating data and retraining models. Rebuild it after changing the generator, agents or wording: `cd backend && .venv/bin/python -m app.seed.snapshot`. Set `REVERSEFLOW_NO_SNAPSHOT=1` to always regenerate.
 * **Frontend** is built as a static site by `.github/workflows/pages.yml` on every push to `main` and published to GitHub Pages at `https://trexiznub.github.io/reverseflow-AI/`. The backend address defaults to `https://reverseflow-ai.onrender.com`; set a repository variable `API_URL` to override it.
 * Local development is unchanged: the static export only turns on when the workflow sets `PAGES_BASE_PATH`.
 

@@ -32,7 +32,7 @@ export default function Settings() {
     catch (e: any) { toast("err", e.message); } finally { setBusy(null); }
   };
   const reset = async () => {
-    if (!confirm("Reset the demo? This rebuilds the demo data and clears every decision and test return. It takes about 30 seconds.")) return;
+    if (!confirm("Reset the demo? This rebuilds the demo data and clears every decision and test return. It only takes a few seconds.")) return;
     setBusy("reset");
     try { const r = await post("/admin/reset"); toast("info", r.detail); setTimeout(refreshMeta, 1500); }
     catch (e: any) { toast("err", e.message); } finally { setBusy(null); }

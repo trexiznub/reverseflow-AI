@@ -188,7 +188,7 @@ def admin_reset(db: Session = Depends(get_db), _: m.User = Depends(require("ops_
         raise HTTPException(409, "reset already in progress")
     db.close()
     threading.Thread(target=bootstrap.reset, kwargs={"regenerate": True}, daemon=True).start()
-    return {"ok": True, "detail": "Regenerating the synthetic dataset and re-running the agents (about 30 seconds)."}
+    return {"ok": True, "detail": "Restoring the demo to its starting state (a few seconds)." if bootstrap.snapshot_available() else "Regenerating the synthetic dataset and re-running the agents (about 30 seconds)."}
 
 
 @router.get("/integrations")

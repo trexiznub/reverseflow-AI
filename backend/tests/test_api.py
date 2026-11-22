@@ -11,6 +11,8 @@ from pathlib import Path
 
 TEST_DB = Path(__file__).resolve().parent / "test_reverseflow.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
+# Exercise the full generate-and-train path here; the snapshot path has its own test.
+os.environ["REVERSEFLOW_NO_SNAPSHOT"] = "1"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -194,3 +196,33 @@ def test_fault_injection_retry(client):
     run = wait_run(client, rid)
     lg = next(a for a in run["agents"] if a["agent"] == "logistics")
     assert lg["status"] == "completed" and lg["attempts"] == 2
+
+
+def test_snapshot_restore(tmp_path):
+    """A fresh server restores the prepared demo and its models instead of rebuilding them."""
+    import subprocess
+    import sys
+    from app import bootstrap
+    if not bootstrap.SNAPSHOT_DB.exists():
+        pytest.skip("no snapshot built")
+    code = (
+        "import time; t=time.time()\n"
+        "from app import bootstrap\n"
+        "bootstrap.ensure_ready()\n"
+        "from app.ml import nlp, anomaly\n"
+        "from app.db import SessionLocal\n"
+        "from app import models as m\n"
+        "from sqlalchemy import select, func\n"
+        "with SessionLocal() as db:\n"
+        "    n = db.scalar(select(func.count(m.Return.id)))\n"
+        "assert bootstrap.status()['ready'] and nlp._reason_model is not None and anomaly._model is not None\n"
+        "print(n, round(time.time()-t, 1))\n"
+    )
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path / 'fresh.db'}"}
+    env.pop("REVERSEFLOW_NO_SNAPSHOT", None)
+    out = subprocess.run([sys.executable, "-c", code], env=env, cwd=Path(__file__).resolve().parents[1],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    n, secs = out.stdout.split()
+    assert int(n) > 15000
+    assert float(secs) < 20
