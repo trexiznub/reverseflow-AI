@@ -1,0 +1,18 @@
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/.env
+backend/data/*.db*
+backend/data/uploads/
+backend/tests/test_reverseflow.db*
+
+# node
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+
+.DS_Store

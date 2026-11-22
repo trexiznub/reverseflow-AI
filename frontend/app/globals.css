@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: #000;
+  color: #F4F4F4;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono), ui-monospace, monospace; letter-spacing: -0.01em; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* heavy display type for headlines and hero numbers */
+.display {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 0.86;
+  text-transform: uppercase;
+}
+.display-num {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+
+/* monospaced uppercase labels */
+.label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 400;
+  color: #8C8C8C;
+}
+
+/* faint engineering grid used behind page headers */
+.grid-paper, .grid-paper-dark {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(135deg, rgba(240, 88, 62, 0.14) 0 6px, transparent 6px 12px);
+}
+
+/* links styled as text links: monochrome with an underline */
+a.text-blue-600, a.text-blue-700 {
+  text-decoration: underline;
+  text-decoration-color: #4D4D4D;
+  text-underline-offset: 3px;
+}
+a.text-blue-600:hover, a.text-blue-700:hover { text-decoration-color: #F4F4F4; }
+
+::selection { background: #F4F4F4; color: #000; }
+
+* { scrollbar-width: thin; scrollbar-color: #363636 transparent; }
+
+input[type="range"] { accent-color: #F4F4F4; }
+select, input, textarea { color-scheme: dark; }
+input::placeholder, textarea::placeholder { color: #5E5E5E; }
+
+.react-flow__attribution { display: none; }
+.react-flow__handle { opacity: 0; }
+.react-flow { --xy-background-color: transparent; }
+.react-flow__controls button { background: #151515; border-color: #2A2A2A; fill: #CCC; color: #CCC; }
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.skeleton { position: relative; overflow: hidden; background: #121212; }
+.skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.05), transparent); animation: shimmer 1.4s infinite; }
