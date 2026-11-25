@@ -112,6 +112,24 @@ cd backend && .venv/bin/python -m app.seed.generate
 
 No paid API is needed. With no LLM configured, explanations come from deterministic evidence templates and are labelled as such.
 
+## Run in SAP Business Application Studio
+
+Use a **Full Stack Cloud Application** dev space. In its terminal:
+
+```bash
+git clone https://github.com/trexiznub/reverseflow-AI.git && cd reverseflow-AI
+cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --port 8040            # terminal 1
+```
+
+```bash
+cd ~/projects/reverseflow-AI/frontend                  # terminal 2
+printf 'NEXT_PUBLIC_API_URL=\nBACKEND_URL=http://localhost:8040\n' > .env.local
+npm install && npm run dev
+```
+
+Open port **3000** when BAS offers it. The browser cannot reach the dev space's `localhost:8040`, so `BACKEND_URL` makes the Next.js server forward `/api` to the backend and the page only talks to its own address.
+
 ## Deployment (GitHub Pages + Render)
 
 * **Backend** runs on Render's free tier (settings in `render.yaml`). Free services sleep after about 15 minutes idle; the next visit wakes them up, which takes about a minute.

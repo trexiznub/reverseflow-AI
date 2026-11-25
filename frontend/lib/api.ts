@@ -2,9 +2,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUserId } from "./session";
 
-export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8040";
-/** True when the backend is a hosted service (for example Render), not a local process. */
-export const IS_HOSTED = !/localhost|127\.0\.0\.1/.test(API);
+// An empty NEXT_PUBLIC_API_URL means "same origin": the website's own server
+// forwards /api to the backend (see BACKEND_URL in next.config.mjs).
+const RAW = process.env.NEXT_PUBLIC_API_URL;
+export const API = RAW === undefined ? "http://localhost:8040" : RAW.replace(/\/$/, "");
+/** True when the backend is a hosted service (for example Render), not a local or same-origin process. */
+export const IS_HOSTED = API !== "" && !/localhost|127\.0\.0\.1/.test(API);
 
 export class ApiError extends Error {
   status: number;
@@ -21,7 +24,7 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
   try {
     res = await fetch(`${API}/api${path}`, { ...init, headers, cache: "no-store" });
   } catch {
-    throw new ApiError(0, "Cannot reach the REVERSEFLOW API. Is the backend running on " + API + "?");
+    throw new ApiError(0, "Cannot reach the REVERSEFLOW API. Is the backend running on " + (API || "this server") + "?");
   }
   if (!res.ok) {
     let msg = res.statusText;
