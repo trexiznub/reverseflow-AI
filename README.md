@@ -125,10 +125,10 @@ cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```bash
 cd ~/projects/reverseflow-AI/frontend                  # terminal 2
 printf 'NEXT_PUBLIC_API_URL=\nBACKEND_URL=http://localhost:8040\n' > .env.local
-npm install && npm run dev
+npm install && npx next dev -p 4000
 ```
 
-Open port **3000** when BAS offers it. The browser cannot reach the dev space's `localhost:8040`, so `BACKEND_URL` makes the Next.js server forward `/api` to the backend and the page only talks to its own address.
+Port 3000 is already taken inside BAS, so the website runs on **4000**; open it when BAS offers it (or F1 → *Ports: Preview*). The browser cannot reach the dev space's `localhost:8040`, so `BACKEND_URL` makes the Next.js server forward `/api` to the backend and the page only talks to its own address.
 
 ## Deployment (GitHub Pages + Render)
 
