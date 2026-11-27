@@ -2,7 +2,7 @@
 import clsx from "clsx";
 import {
   ArrowUp, BarChart3, Boxes, ChevronDown, CornerDownLeft, Handshake, LayoutGrid, Menu, Network, PackageOpen, RotateCcw, Search,
-  Settings2, ShieldCheck, TrendingUp, Workflow, X,
+  Plug, Settings2, ShieldCheck, Target, TrendingUp, Workflow, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -20,6 +20,8 @@ export const NAV = [
   { id: "root-cause", href: "/root-cause", label: "Product issues", icon: Network, primary: true, desc: "Why items come back, by product and seller" },
   { id: "twin", href: "/twin", label: "Planner", icon: Boxes, primary: true, desc: "Try plans before you commit to one" },
   { id: "recovery", href: "/recovery", label: "Resale", icon: RotateCcw, primary: true, desc: "Get returned items back on sale" },
+  { id: "case", href: "/case", label: "Why it matters", icon: Target, primary: false, desc: "The problem, the economics and the use of SAP" },
+  { id: "sap", href: "/sap", label: "SAP", icon: Plug, primary: false, desc: "SAP connections and messages for IBP, TM and Ariba" },
   { id: "analytics", href: "/analytics", label: "Reports", icon: BarChart3, primary: false, desc: "Key numbers and downloads" },
   { id: "agents", href: "/agents", label: "How it works", icon: Workflow, primary: false, desc: "See what each AI agent did" },
   { id: "customer", href: "/customer", label: "Customer app", icon: PackageOpen, primary: false, desc: "What a shopper sees" },

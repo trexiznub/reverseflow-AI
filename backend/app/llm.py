@@ -9,8 +9,8 @@ Providers
   structured evidence. No network, no API key.
 * openai_compatible: any OpenAI-compatible chat endpoint (LLM_BASE_URL,
   LLM_API_KEY, LLM_MODEL). Used only if configured.
-* sap_genai_hub: placeholder adapter for SAP Generative AI Hub (AI Core). Not
-  connected in this prototype; it reports itself as "not configured".
+* sap_genai_hub: SAP Generative AI Hub on SAP AI Core. Switches on when an AI
+  Core service key and a chat-model deployment are configured.
 
 If a configured provider fails, the layer falls back to the template and
 records the source, so the UI can show where every explanation came from.
@@ -55,6 +55,10 @@ class TemplateProvider:
             return json.dumps(f)[:400]
 
 
+SYSTEM_PROMPT = ("You write one short, factual operations explanation for a returns manager, in plain English. "
+                 "Use only the facts given. Never accuse customers.")
+
+
 class OpenAICompatibleProvider:
     name = "openai_compatible"
 
@@ -71,7 +75,7 @@ class OpenAICompatibleProvider:
         body = json.dumps({
             "model": self.model, "temperature": 0.2, "max_tokens": 180,
             "messages": [
-                {"role": "system", "content": "You write one short, factual operations explanation for a returns manager. Use only the facts given. Never accuse customers."},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Recommendation type: {kind}. Facts: {json.dumps(facts, default=str)}"},
             ],
         }).encode()
@@ -82,12 +86,48 @@ class OpenAICompatibleProvider:
 
 
 class SapGenAiHubProvider:
-    """Adapter boundary for SAP Generative AI Hub (SAP AI Core). Not connected."""
-    name = "sap_genai_hub"
-    configured = False
+    """SAP Generative AI Hub on SAP AI Core.
 
-    def explain(self, kind: str, facts: dict) -> str:  # pragma: no cover
-        raise RuntimeError("SAP Generative AI Hub is a proposed integration and is not connected in this prototype")
+    Uses a model deployment in AI Core (for example an OpenAI GPT model from the
+    Generative AI Hub catalogue). Credentials come from a bound "aicore"
+    service on Cloud Foundry, or from environment variables:
+
+        AICORE_AUTH_URL, AICORE_CLIENT_ID, AICORE_CLIENT_SECRET   service key
+        AICORE_BASE_URL         AI API URL (serviceurls.AI_API_URL)
+        AICORE_DEPLOYMENT_ID    the running chat-model deployment
+        AICORE_RESOURCE_GROUP   defaults to "default"
+    """
+    name = "sap_genai_hub"
+
+    def __init__(self):
+        from .sap import btp
+        c = btp.binding("aicore") or {}
+        self.auth_url = os.getenv("AICORE_AUTH_URL") or c.get("url")
+        self.client_id = os.getenv("AICORE_CLIENT_ID") or c.get("clientid")
+        self.client_secret = os.getenv("AICORE_CLIENT_SECRET") or c.get("clientsecret")
+        self.base = os.getenv("AICORE_BASE_URL") or (c.get("serviceurls") or {}).get("AI_API_URL")
+        self.deployment = os.getenv("AICORE_DEPLOYMENT_ID")
+        self.group = os.getenv("AICORE_RESOURCE_GROUP", "default")
+        self.api_version = os.getenv("AICORE_API_VERSION", "2024-02-01")
+
+    @property
+    def configured(self) -> bool:
+        return all([self.auth_url, self.client_id, self.client_secret, self.base, self.deployment])
+
+    def explain(self, kind: str, facts: dict) -> str:
+        from .sap import btp
+        token_url = self.auth_url.rstrip("/") + ("" if self.auth_url.rstrip("/").endswith("/oauth/token") else "/oauth/token")
+        tok = btp.client_credentials_token(token_url, self.client_id, self.client_secret)
+        url = f"{self.base.rstrip('/')}/v2/inference/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
+        code, body = btp.http_json("POST", url, {
+            "temperature": 0.2, "max_tokens": 180,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Recommendation type: {kind}. Facts: {json.dumps(facts, default=str)}"},
+            ]}, headers={"Authorization": f"Bearer {tok}", "AI-Resource-Group": self.group}, timeout=12)
+        if code != 200 or not isinstance(body, dict):
+            raise RuntimeError(f"AI Core answered {code}")
+        return body["choices"][0]["message"]["content"].strip()
 
 
 _template = TemplateProvider()
@@ -98,17 +138,17 @@ def provider_status() -> list[dict]:
     return [
         {"id": "template", "label": "Evidence template (offline)", "configured": True, "implemented": True},
         {"id": "openai_compatible", "label": "OpenAI-compatible endpoint", "configured": oc.configured, "implemented": True},
-        {"id": "sap_genai_hub", "label": "SAP Generative AI Hub", "configured": False, "implemented": False},
+        {"id": "sap_genai_hub", "label": "SAP Generative AI Hub", "configured": SapGenAiHubProvider().configured, "implemented": True},
     ]
 
 
 def explain(kind: str, facts: dict, provider: str = "template") -> tuple[str, str]:
     """Return (text, source)."""
-    if provider == "openai_compatible":
-        p = OpenAICompatibleProvider()
+    if provider in ("openai_compatible", "sap_genai_hub"):
+        p = OpenAICompatibleProvider() if provider == "openai_compatible" else SapGenAiHubProvider()
         if p.configured:
             try:
-                return p.explain(kind, facts), "openai_compatible"
+                return p.explain(kind, facts), provider
             except Exception:  # network / auth: fall back, never break the agent
                 pass
     return _template.explain(kind, facts), "template"

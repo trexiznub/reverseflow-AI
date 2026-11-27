@@ -1,0 +1,123 @@
+_schema-version: "3.2"
+ID: reverseflow
+version: 1.0.0
+description: ReverseFlow returns control tower on SAP BTP, Cloud Foundry runtime
+
+# Build and deploy from SAP Business Application Studio:
+#   mbt build
+#   cf login   (or use the BAS "Cloud Foundry: Login" command)
+#   cf deploy mta_archives/reverseflow_1.0.0.mtar
+#
+# What gets created:
+#   reverseflow-srv        Python backend (FastAPI, agents, models)
+#   reverseflow-web        Next.js website
+#   reverseflow            SAP application router: SAP sign-in in front of both
+#   reverseflow-uaa        XSUAA sign-in and roles (xs-security.json)
+#   reverseflow-destination  Destination service for SAP IBP, TM and Ariba
+# Optional (switch on by setting active: true once the service exists in your
+# subaccount): SAP HANA Cloud schema and SAP AI Core.
+
+parameters:
+  enable-parallel-deployments: true
+
+modules:
+  - name: reverseflow-srv
+    type: python
+    path: backend
+    build-parameters:
+      ignore: [".venv/", "data/", "__pycache__/", ".pytest_cache/", "tests/test_reverseflow.db*", ".env"]
+    parameters:
+      buildpack: python_buildpack
+      memory: 1G
+      disk-quota: 2G
+      command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+      health-check-type: http
+      health-check-http-endpoint: /api/health
+    requires:
+      - name: reverseflow-uaa
+      - name: reverseflow-destination
+      - name: reverseflow-hana
+      - name: reverseflow-aicore
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+
+  - name: reverseflow-web
+    type: nodejs
+    path: frontend
+    build-parameters:
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build:btp
+      ignore: ["node_modules/", ".next/cache/", "out/", ".env.local"]
+    parameters:
+      memory: 512M
+      disk-quota: 1G
+      command: npx next start -p $PORT
+    provides:
+      - name: web-app
+        properties:
+          web-url: ${default-url}
+
+  - name: reverseflow
+    type: approuter.nodejs
+    path: approuter
+    build-parameters:
+      ignore: ["node_modules/"]
+    parameters:
+      memory: 256M
+      disk-quota: 512M
+    properties:
+      SESSION_TIMEOUT: 60
+    requires:
+      - name: reverseflow-uaa
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true
+          timeout: 120000
+      - name: web-app
+        group: destinations
+        properties:
+          name: web
+          url: ~{web-url}
+
+resources:
+  - name: reverseflow-uaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: reverseflow-${org}-${space}
+        tenant-mode: dedicated
+
+  - name: reverseflow-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  # SAP HANA Cloud: needs a running HANA Cloud instance in the space first
+  # (free tier or trial). Then set active: true and redeploy.
+  - name: reverseflow-hana
+    type: org.cloudfoundry.managed-service
+    active: false
+    parameters:
+      service: hana
+      service-plan: schema
+
+  # SAP AI Core (Generative AI Hub): needs the AI Core entitlement. After
+  # deploying, set AICORE_DEPLOYMENT_ID on reverseflow-srv and choose
+  # "SAP Generative AI Hub" in Settings.
+  - name: reverseflow-aicore
+    type: org.cloudfoundry.managed-service
+    active: false
+    parameters:
+      service: aicore
+      service-plan: extended

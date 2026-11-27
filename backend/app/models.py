@@ -339,3 +339,27 @@ class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON)
+
+
+class SapMessage(Base):
+    """Outbox of messages for SAP systems (IBP, TM, Ariba), one per business event.
+
+    A message is prepared whenever an approved decision or a forecast affects a
+    system that SAP owns. It is delivered when that system is connected;
+    otherwise it waits here with status "waiting" and nothing is sent.
+    """
+    __tablename__ = "sap_outbox"
+    id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    system: Mapped[str] = mapped_column("sap_system", String(10), index=True)  # ibp / tm / ariba
+    kind: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(200))
+    source_type: Mapped[str] = mapped_column(String(20))  # recommendation / forecast
+    source_id: Mapped[str] = mapped_column(String(40), index=True)
+    created_by: Mapped[str] = mapped_column(String(80))
+    payload: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(12), default="waiting", index=True)  # waiting / sent / failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    target: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    response: Mapped[dict] = mapped_column(JSON, default=dict)

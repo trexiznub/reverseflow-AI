@@ -7,7 +7,9 @@ SAP Hackfest 2026 Grand Finale · Theme 1: Resilient Supply Chains · Team BugFi
 
 Scenario: the post-Navratri return wave in festive ethnicwear. The demo stands on **20 Oct 2026 (Vijayadashami)**; the return peak is forecast 5–6 days later.
 
-**All records are synthetic and all scenario figures are illustrative.** Nothing in this repository is real marketplace data, and no SAP system is connected (see [SAP integration](#sap-integration)).
+**All records are synthetic and all scenario figures are illustrative.** Nothing in this repository is real marketplace data. The SAP connectors are real code, but in the public demo no SAP tenant is connected, and the app says so (see [SAP integration](#sap-integration)).
+
+The **Why it matters** page (`/case`) walks through the problem statement, objective, definitions, a worked example from the live demo, the market economics (published figures with sources, plus an adjustable estimate) and the use of SAP. The **SAP** page (`/sap`) shows each SAP connection and the messages prepared for SAP IBP, TM and Ariba.
 
 ---
 
@@ -40,7 +42,8 @@ backend/   FastAPI · Pydantic · SQLAlchemy · pandas / NumPy · scikit-learn �
      services/        intelligence.py (findings, graph) · actions.py (approvals & effects) · settings.py
      routers/         core · forecast · intel · ops · portals · analytics
      seed/            generate.py (deterministic synthetic data) · text_bank.py
-     llm.py           LLM abstraction: offline template (default) · OpenAI-compatible · SAP Gen AI Hub adapter stub
+     llm.py           LLM abstraction: offline template (default) · OpenAI-compatible · SAP Generative AI Hub (AI Core)
+     sap/             SAP BTP bindings, Destination service, outbox for SAP IBP / TM / Ariba
    tests/             end-to-end API tests
    data/              SQLite database (created on first start)
 ```
@@ -107,6 +110,11 @@ cd backend && .venv/bin/python -m app.seed.generate
 | `DATABASE_URL` | `sqlite:///backend/data/reverseflow.db` | Any SQLAlchemy URL |
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Allowed frontend origins |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | unset | Optional OpenAI-compatible endpoint for explanation wording. Not required. |
+| `AICORE_AUTH_URL`, `AICORE_CLIENT_ID`, `AICORE_CLIENT_SECRET`, `AICORE_BASE_URL`, `AICORE_DEPLOYMENT_ID` | unset | SAP Generative AI Hub (from an AI Core service key). On Cloud Foundry the bound `aicore` service supplies all but the deployment ID. |
+| `SAP_IBP_URL`, `SAP_TM_URL`, `SAP_ARIBA_URL` (+ `_TOKEN_URL`, `_CLIENT_ID`, `_CLIENT_SECRET` or `_USER`, `_PASSWORD`) | unset | Where messages for each SAP system are posted, usually an SAP Integration Suite flow. Alternatively bind the Destination service and create destinations `reverseflow-ibp`, `reverseflow-tm`, `reverseflow-ariba`. |
+| `SAP_IBP_PLANNING_AREA` | `RFRETURNS` | IBP planning area named in forecast messages |
+| `REVERSEFLOW_SAP_SANDBOX` | unset | `1` turns on a local test receiver at `/api/sap/sandbox/{system}`, to try sending without an SAP tenant |
+| `REVERSEFLOW_AUTH` + `XSUAA_URL`, `XSUAA_XSAPPNAME` | unset | XSUAA sign-in outside Cloud Foundry. On Cloud Foundry a bound `xsuaa` service switches it on by itself. |
 
 `frontend/.env.example`: `NEXT_PUBLIC_API_URL` (default `http://localhost:8040`).
 
@@ -130,6 +138,19 @@ npm install && npx next dev -p 4000
 
 Port 3000 is already taken inside BAS, so the website runs on **4000**; open it when BAS offers it (or F1 → *Ports: Preview*). The browser cannot reach the dev space's `localhost:8040`, so `BACKEND_URL` makes the Next.js server forward `/api` to the backend and the page only talks to its own address.
 
+## Deploy to SAP BTP (Cloud Foundry)
+
+`mta.yaml` deploys the whole app to SAP BTP from BAS:
+
+```bash
+npm install -g mbt        # once, if the dev space doesn't have it
+mbt build
+cf login -a https://api.cf.eu10.hana.ondemand.com    # or F1 → "CF: Login to Cloud Foundry"
+cf deploy mta_archives/reverseflow_1.0.0.mtar
+```
+
+It creates the backend (`reverseflow-srv`), the website (`reverseflow-web`), the SAP application router (`reverseflow`, the address you open) and two services: **XSUAA** for SAP sign-in and roles (`xs-security.json`) and the **Destination** service for IBP, TM and Ariba. After deploying, assign yourself the role collection `ReverseFlow_OpsManager` in the BTP cockpit (Security → Users). SAP HANA Cloud and SAP AI Core are listed in `mta.yaml` with `active: false`; switch them on once those services exist in your subaccount.
+
 ## Deployment (GitHub Pages + Render)
 
 * **Backend** runs on Render's free tier (settings in `render.yaml`). Free services sleep after about 15 minutes idle; the next visit wakes them up, which takes about a minute.
@@ -143,7 +164,7 @@ Port 3000 is already taken inside BAS, so the website runs on **4000**; open it 
 cd backend && .venv/bin/pytest -q
 ```
 
-The suite builds its own database (`tests/test_reverseflow.db`) and checks: forecast metrics computed and ML beating baseline in the surge window, all six agents completing with messages and conflicts, the planted vendor patterns being found, exactly 14 integrity flags with no automatic rejection, Twin recalculation, RBAC scoping, the full customer → 3PL → governance → warehouse flow, approval persistence and side effects, KPIs and SAC exports, and retry after an injected agent fault.
+The suite builds its own database (`tests/test_reverseflow.db`) and checks: forecast metrics computed and ML beating baseline in the surge window, all six agents completing with messages and conflicts, the planted vendor patterns being found, exactly 14 integrity flags with no automatic rejection, Twin recalculation, RBAC scoping, the full customer → 3PL → governance → warehouse flow, approval persistence and side effects, KPIs and SAC exports, retry after an injected agent fault, SAP outbox messages from approvals and forecasts, delivery when a system is connected, XSUAA token sign-in, and SAP Generative AI Hub explanations with fallback.
 
 ```bash
 cd frontend && npx tsc --noEmit && npm run build
@@ -185,15 +206,23 @@ Dark, monochrome interface: Archivo (display and body) with Geist Mono labels, h
 
 ## SAP integration
 
-| Capability | Status in this prototype | SAP pathway |
+Every connector is real code that switches on when its SAP service is bound (Cloud Foundry `VCAP_SERVICES`) or configured with environment variables. The **SAP** page shows the live state; nothing is shown as connected unless it is.
+
+| SAP product | What it does here | State in the public demo |
 |---|---|---|
-| Operational database | **Implemented** (SQLAlchemy, portable schema, SQLite locally) | SAP HANA Cloud via `sqlalchemy-hana` |
-| Analytics exports | **Implemented** (`/api/integrations/sac/{returns_fact,forecast,vendor_kpis,recovery_queue}.csv`) | SAP Analytics Cloud datasets / HANA calculation views |
-| LLM explanations | **Implemented** offline template; optional OpenAI-compatible endpoint | SAP Generative AI Hub: adapter boundary only, **not connected** |
-| Agent orchestration & APIs | **Implemented locally** (FastAPI) | SAP BTP (Cloud Foundry / Kyma), XSUAA for roles |
-| Inventory & supply planning | Proposed | SAP IBP |
-| Transportation planning | Proposed | SAP Transportation Management |
-| Supplier collaboration | Proposed | SAP Ariba / Business Network |
+| SAP Business Application Studio | Development environment; the app runs in a BAS dev space | **In use** |
+| SAP BTP, Cloud Foundry runtime | Hosts backend, website and application router (`mta.yaml`) | Ready to deploy |
+| XSUAA (Authorization and Trust Management) | SAP sign-in; token scopes decide the role (`app/rbac.py`, `xs-security.json`) | Built, not connected |
+| SAP HANA Cloud | Database; schema checked against the HANA dialect (`app/db.py`) | Built, not connected |
+| SAP Generative AI Hub (AI Core) | Plain-English explanation wording; decisions never depend on it (`app/llm.py`) | Built, not connected |
+| SAP IBP | Return forecast after every agent run, and recovered stock, as planning data | Built; messages wait in the outbox |
+| SAP Transportation Management | Approved extra vans and warehouse changes as transportation requests | Built; messages wait in the outbox |
+| SAP Ariba / Business Network | Approved quality holds, size-chart and listing fixes as quality notifications | Built; messages wait in the outbox |
+| SAP BTP Destination service | Addresses and sign-in for IBP, TM and Ariba, including on-premise via Cloud Connector | Built, not connected |
+| SAP Integration Suite | Maps our JSON messages to each system's exact API | Planned |
+| SAP Analytics Cloud | Four ready-to-import datasets (`/api/integrations/sac/*.csv`) | Working exports |
+
+How a decision reaches SAP: an approval on the **Decisions** page (or an auto-approved action within the spending limit) writes a message to the outbox (`app/sap/outbox.py`). If that system is connected the message is posted at once; otherwise it waits, and the Operations Manager can resend it from the SAP page. The message formats are modelled on the SAP APIs named above; the exact field mapping is meant to live in an Integration Suite flow and must be confirmed against a real tenant.
 
 ## Design notes and honest limits
 
@@ -203,4 +232,5 @@ Dark, monochrome interface: Archivo (display and body) with Geist Mono labels, h
 * The anomaly model is unsupervised; no accuracy is claimed. Anomalies only ever trigger an inspection request.
 * Resale values come from configurable assumptions and the synthetic order history, not from market prices.
 * Business dates use the scenario clock (20 Oct 2026); audit timestamps use real wall-clock time.
-* Demo identity is a request header. Production would use SAP BTP XSUAA / IAS tokens with the same role model.
+* Demo identity is a request header (the person switcher). With XSUAA bound, identity comes from the SAP token instead, and only Operations Managers can switch persona to present the demo.
+* The SAP connectors have been tested against stand-in receivers, not a live SAP IBP, TM, Ariba, HANA Cloud or AI Core tenant.

@@ -1,19 +1,17 @@
 "use client";
 import clsx from "clsx";
 import { Database, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession, useToast } from "@/components/providers";
-import { Badge, Button, Card, CardHead, ErrorState, Field, inputCls, JsonBlock, KV, Loading, More, PageHeader } from "@/components/ui";
+import { Button, Card, CardHead, ErrorState, Field, inputCls, JsonBlock, KV, Loading, More, PageHeader } from "@/components/ui";
 import { post, put, useApi } from "@/lib/api";
 import { inr, ROLE_LABEL } from "@/lib/format";
-
-const STATUS_TONE: Record<string, any> = { implemented: "ok", "implemented locally": "ok", "implemented (offline template)": "ok", proposed: "neutral" };
 
 export default function Settings() {
   const { meta, refreshMeta } = useSession();
   const toast = useToast();
   const s = useApi<any>("/settings");
-  const integ = useApi<any[]>("/integrations");
   const [resale, setResale] = useState<any>(null);
   const [gov, setGov] = useState<any>(null);
   const [fault, setFault] = useState<any>({ agent: "", failures: 1 });
@@ -88,7 +86,7 @@ export default function Settings() {
               <label key={p.id} className={clsx("flex items-start gap-2 rounded border p-2.5", llm === p.id ? "border-ink-500 bg-canvas" : "border-line", (!p.configured || !canEdit) && "opacity-60")}>
                 <input type="radio" disabled={!p.configured || !canEdit} checked={llm === p.id} onChange={() => setLlm(p.id)} className="mt-0.5" />
                 <span className="text-[12.5px]"><span className="font-medium">{p.label}</span><br />
-                  <span className="text-[11px] text-ink-500">{p.configured ? "Configured" : p.implemented ? "Set LLM_BASE_URL and LLM_API_KEY in backend/.env" : "Proposed integration, not connected"}</span></span>
+                  <span className="text-[11px] text-ink-500">{p.configured ? "Connected" : p.id === "sap_genai_hub" ? "Connect SAP AI Core to use this (see the SAP page)" : "Set LLM_BASE_URL and LLM_API_KEY in backend/.env"}</span></span>
               </label>
             ))}
           </div>
@@ -108,25 +106,8 @@ export default function Settings() {
         </Card>
       </div>
       <Card>
-        <CardHead label="SAP ecosystem" title="Integration status" sub="Implemented capabilities are distinguished from proposed pathways. Nothing here is presented as connected unless it is." />
-        {integ.error ? <ErrorState error={integ.error} /> : !integ.data ? <Loading rows={1} /> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-[12.5px]">
-              <thead><tr className="label text-left"><th className="pb-2 font-semibold">Capability</th><th className="pb-2 font-semibold">Status</th><th className="pb-2 font-semibold">What exists in this prototype</th><th className="pb-2 font-semibold">SAP target</th><th className="pb-2 font-semibold">Pathway</th></tr></thead>
-              <tbody>
-                {integ.data.map((i) => (
-                  <tr key={i.system} className="border-t border-line align-top">
-                    <td className="py-2 font-medium">{i.system}</td>
-                    <td className="py-2"><Badge tone={STATUS_TONE[i.status] || "neutral"} dot>{i.status}</Badge></td>
-                    <td className="max-w-[280px] py-2 text-ink-700">{i.detail}</td>
-                    <td className="py-2 font-medium">{i.sap_target}</td>
-                    <td className="max-w-[280px] py-2 text-ink-500">{i.pathway}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <CardHead label="SAP" title="SAP connections" sub="Which SAP products the app uses, which are connected, and the messages waiting for SAP IBP, TM and Ariba."
+          right={<Link href="/sap" className="text-xs font-medium text-blue-600">Open the SAP page</Link>} />
       </Card>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>

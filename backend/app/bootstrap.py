@@ -58,6 +58,12 @@ def _restore_snapshot():
         shutil.copyfileobj(src, dst, 1 << 20)
     tmp.replace(path)
     engine.dispose()
+    _add_missing_tables()
+
+
+def _add_missing_tables():
+    """Create tables added after a database (or snapshot) was made, such as the SAP outbox."""
+    m.Base.metadata.create_all(engine)
 
 
 def _load_models() -> bool:
@@ -140,6 +146,7 @@ def ensure_ready():
     if not _db_populated():
         reset(regenerate=True)  # restores the prepared copy when there is one
         return
+    _add_missing_tables()
     with SessionLocal() as db:
         nlp.train(db)
         anomaly.train(db)

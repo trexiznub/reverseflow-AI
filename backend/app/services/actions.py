@@ -98,6 +98,11 @@ def apply(db: Session, r: m.Recommendation, actor: str) -> dict:
         add_event(db, r.entity_id, "integrity_inspection", f"Physical inspection approved by {actor}. Evidence: " + "; ".join(ev.get("case", {}).get("evidence", [])), customer_visible=False)
         effect = {"inspection_requested": r.entity_id}
     r.applied = True
+    # Hand the decision to the SAP system that carries it out (IBP, TM or Ariba).
+    from ..sap import outbox
+    msgs = outbox.from_recommendation(db, r, actor)
+    if msgs:
+        effect["sap_messages"] = [{"id": x.id, "system": x.system, "status": x.status} for x in msgs]
     audit(db, actor, "user" if not actor.startswith("system") else "system", f"recommendation.applied.{r.kind}", "recommendation", r.id, effect)
     return effect
 

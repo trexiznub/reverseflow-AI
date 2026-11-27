@@ -16,7 +16,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import threading  # noqa: E402
 
 from .bootstrap import ensure_ready, status as boot_status  # noqa: E402
-from .routers import analytics, core, forecast, intel, ops, portals  # noqa: E402
+from .routers import analytics, case, core, forecast, intel, ops, portals, sap  # noqa: E402
 
 
 @asynccontextmanager
@@ -64,5 +64,5 @@ app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http
                    allow_methods=["*"], allow_headers=["*"])
 
 
-for r in (core.router, forecast.router, intel.router, ops.router, portals.router, analytics.router):
+for r in (core.router, forecast.router, intel.router, ops.router, portals.router, analytics.router, case.router, sap.router):
     app.include_router(r, prefix="/api")

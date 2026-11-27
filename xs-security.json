@@ -1,0 +1,37 @@
+{
+  "xsappname": "reverseflow",
+  "tenant-mode": "dedicated",
+  "description": "ReverseFlow returns control tower: roles and approval rights",
+  "scopes": [
+    { "name": "$XSAPPNAME.OpsManager", "description": "Operations Manager: approve logistics and routing, send SAP messages" },
+    { "name": "$XSAPPNAME.VendorQuality", "description": "Seller Quality Manager: approve seller quality actions" },
+    { "name": "$XSAPPNAME.WarehouseManager", "description": "Warehouse Manager: approve inspection and resale actions" },
+    { "name": "$XSAPPNAME.DisputeReviewer", "description": "Return checks: review flagged returns" },
+    { "name": "$XSAPPNAME.Vendor", "description": "Seller partner portal" },
+    { "name": "$XSAPPNAME.Logistics", "description": "Delivery partner portal" },
+    { "name": "$XSAPPNAME.WarehousePartner", "description": "Inspection team portal" },
+    { "name": "$XSAPPNAME.Customer", "description": "Customer returns app" }
+  ],
+  "attributes": [
+    { "name": "scope_id", "description": "Seller, carrier or warehouse the person belongs to", "valueType": "string", "valueRequired": false }
+  ],
+  "role-templates": [
+    { "name": "OpsManager", "description": "Operations Manager", "scope-references": ["$XSAPPNAME.OpsManager"] },
+    { "name": "VendorQuality", "description": "Seller Quality Manager", "scope-references": ["$XSAPPNAME.VendorQuality"] },
+    { "name": "WarehouseManager", "description": "Warehouse Manager", "scope-references": ["$XSAPPNAME.WarehouseManager"] },
+    { "name": "DisputeReviewer", "description": "Return checks", "scope-references": ["$XSAPPNAME.DisputeReviewer"] },
+    { "name": "Vendor", "description": "Seller", "scope-references": ["$XSAPPNAME.Vendor"], "attribute-references": ["scope_id"] },
+    { "name": "Logistics", "description": "Delivery partner", "scope-references": ["$XSAPPNAME.Logistics"], "attribute-references": ["scope_id"] },
+    { "name": "WarehousePartner", "description": "Inspection team", "scope-references": ["$XSAPPNAME.WarehousePartner"], "attribute-references": ["scope_id"] },
+    { "name": "Customer", "description": "Customer", "scope-references": ["$XSAPPNAME.Customer"] }
+  ],
+  "role-collections": [
+    { "name": "ReverseFlow_OpsManager", "description": "ReverseFlow Operations Manager", "role-template-references": ["$XSAPPNAME.OpsManager"] },
+    { "name": "ReverseFlow_VendorQuality", "description": "ReverseFlow Seller Quality Manager", "role-template-references": ["$XSAPPNAME.VendorQuality"] },
+    { "name": "ReverseFlow_WarehouseManager", "description": "ReverseFlow Warehouse Manager", "role-template-references": ["$XSAPPNAME.WarehouseManager"] },
+    { "name": "ReverseFlow_DisputeReviewer", "description": "ReverseFlow return checks", "role-template-references": ["$XSAPPNAME.DisputeReviewer"] }
+  ],
+  "oauth2-configuration": {
+    "redirect-uris": ["https://*.hana.ondemand.com/**", "https://*.applicationstudio.cloud.sap/**"]
+  }
+}

@@ -247,6 +247,12 @@ def _execute(db, run_id: str) -> dict:
     pending = db.query(m.Recommendation).filter(m.Recommendation.status.in_(["pending", "escalated"])).count()
     run.summary = {"recommendations": rec_stats, "alerts": n_alerts, "conflicts": len(ctx.conflicts), "failed_agents": sorted(failed),
                    "pending_approvals": pending, "messages": len(ctx.messages)}
+    if "prediction" in run.plan and "prediction" not in failed:
+        # The new forecast goes to SAP IBP as planning data (held in the outbox if IBP isn't connected).
+        from .sap import outbox
+        msg = outbox.publish_forecast(db, "orchestrator")
+        if msg:
+            run.summary = {**run.summary, "sap_forecast_message": msg.id}
     actions.audit(db, "orchestrator", "system", "orchestrator.run", "run", run_id, run.summary)
     db.commit()
     return run.summary

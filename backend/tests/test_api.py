@@ -182,6 +182,78 @@ def test_approval_workflow_persists(client):
     assert any(a["action"] == "recommendation.approve" for a in audit)
 
 
+def test_sap_outbox_from_approval_and_forecast(client):
+    # the approved QC hold above became an Ariba quality notification, waiting because Ariba isn't connected
+    msgs = client.get("/api/sap/outbox?system=ariba", headers=OPS).json()
+    note = next(x for x in msgs if x["kind"] == "vendor_qc_hold")
+    assert note["status"] == "waiting" and note["created_by"] == "Kavya Iyer"
+    full = client.get(f"/api/sap/outbox/{note['id']}", headers=OPS).json()
+    qn = full["payload"]["qualityNotification"]
+    assert qn["requestedAction"] == "HOLD_SHIPMENTS_UNTIL_QC_PASSED" and qn["supplier"]["id"]
+    # every full agent run prepares the forecast for IBP
+    ibp = client.get("/api/sap/outbox?system=ibp", headers=OPS).json()
+    assert any(x["kind"] == "return_forecast" for x in ibp)
+    pub = client.post("/api/sap/ibp/forecast", headers=OPS).json()
+    rows = client.get(f"/api/sap/outbox/{pub['id']}", headers=OPS).json()["payload"]["rows"]
+    assert rows and {"PRDID", "LOCID", "PERIODID_DAY", "RETURNSFORECAST"} <= set(rows[0])
+    # partners and customers can't see the outbox
+    assert client.get("/api/sap/outbox", headers=VENDOR).status_code == 403
+
+
+def test_sap_delivery_when_connected(client, monkeypatch):
+    from app.sap import btp
+    sent = []
+    monkeypatch.setenv("SAP_ARIBA_URL", "https://integration.example/ariba")
+    monkeypatch.setattr(btp, "http_json", lambda method, url, body=None, headers=None, timeout=15: (sent.append((url, body)) or (202, {"ok": True})))
+    note = next(x for x in client.get("/api/sap/outbox?system=ariba", headers=OPS).json() if x["status"] == "waiting")
+    assert client.post(f"/api/sap/outbox/{note['id']}/send", headers=VQM).status_code == 403  # only the ops manager resends
+    r = client.post(f"/api/sap/outbox/{note['id']}/send", headers=OPS).json()
+    assert r["status"] == "sent" and r["response"]["http_status"] == 202 and r["response"]["via"] == "environment"
+    assert sent[0][0] == "https://integration.example/ariba" and sent[0][1]["messageId"] == note["id"]
+
+
+def test_sap_status_and_case(client):
+    st = client.get("/api/sap/status", headers=OPS).json()
+    by = {s["id"]: s for s in st["services"]}
+    assert by["bas"]["state"] == "in_use" and by["hana"]["state"] == "ready" and by["tm"]["state"] == "ready"
+    assert st["auth_mode"] == "demo"
+    c = client.get("/api/case", headers=OPS).json()
+    assert c["facts"] and c["assumptions"] and c["sources"]
+    p = c["demo"]["planner"]
+    assert p["baseline"]["value_lost"] > p["C"]["value_lost"] > 0 and 0 < p["reduction"] < 1
+    assert c["demo"]["seller"]["share"] > c["demo"]["seller"]["others_share"]
+
+
+def test_xsuaa_sign_in(client, monkeypatch):
+    """With XSUAA bound, a token is required and its scopes decide the role."""
+    import json
+    from app import rbac
+    monkeypatch.setenv("VCAP_SERVICES", json.dumps({"xsuaa": [{"credentials": {"url": "https://x.authentication.example", "xsappname": "reverseflow!t1", "clientid": "c"}}]}))
+    assert client.get("/api/meta").status_code == 401
+    monkeypatch.setattr(rbac, "_verify", lambda tok: {"_scopes": {"WarehouseManager"}} if tok == "good" else (_ for _ in ()).throw(ValueError()))
+    assert client.get("/api/meta", headers={"Authorization": "Bearer bad"}).status_code == 401
+    me = client.get("/api/meta", headers={"Authorization": "Bearer good", "X-User-Id": "U-RAHUL"}).json()
+    assert me["user"]["role"] == "warehouse_manager"  # can't switch persona without the ops scope
+    assert client.get("/api/sap/status", headers={"Authorization": "Bearer good"}).json()["auth_mode"] == "xsuaa"
+
+
+def test_sap_genai_hub_explanations(monkeypatch):
+    from app import llm
+    from app.sap import btp
+    for k, v in {"AICORE_AUTH_URL": "https://auth.example", "AICORE_CLIENT_ID": "id", "AICORE_CLIENT_SECRET": "s",
+                 "AICORE_BASE_URL": "https://api.ai.example", "AICORE_DEPLOYMENT_ID": "d123"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(btp, "client_credentials_token", lambda *a, **k: "tok")
+    calls = []
+    monkeypatch.setattr(btp, "http_json", lambda m_, url, body=None, headers=None, timeout=15: (calls.append((url, headers)) or
+                        (200, {"choices": [{"message": {"content": "Pune needs more vans."}}]})))
+    text, src = llm.explain("extra_pickup", {"city": "Pune"}, "sap_genai_hub")
+    assert (text, src) == ("Pune needs more vans.", "sap_genai_hub")
+    assert "/v2/inference/deployments/d123/chat/completions" in calls[0][0] and calls[0][1]["AI-Resource-Group"] == "default"
+    monkeypatch.setattr(btp, "http_json", lambda *a, **k: (500, {}))
+    assert llm.explain("extra_pickup", {"city": "Pune", "cap": 1, "peak": 2, "veh": 3}, "sap_genai_hub")[1] == "template"
+
+
 def test_analytics_and_exports(client):
     k = client.get("/api/analytics/kpis", headers=OPS).json()["kpis"]
     keys = {x["key"] for x in k}

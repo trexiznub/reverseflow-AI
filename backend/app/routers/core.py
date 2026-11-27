@@ -193,20 +193,7 @@ def admin_reset(db: Session = Depends(get_db), _: m.User = Depends(require("ops_
 
 @router.get("/integrations")
 def integrations(db: Session = Depends(get_db), _: m.User = Depends(current_user)):
-    url = str(db.bind.url)
-    return [
-        {"system": "Operational database", "status": "implemented", "detail": f"SQLAlchemy over {url.split(':')[0]}; portable schema, no vendor-specific SQL.",
-         "sap_target": "SAP HANA Cloud", "pathway": "Point DATABASE_URL at HANA via sqlalchemy-hana; tables map 1:1 to HANA column tables."},
-        {"system": "Analytics export", "status": "implemented", "detail": "Flat CSV datasets at /api/integrations/sac/{dataset}.csv (returns_fact, forecast, vendor_kpis, recovery_queue).",
-         "sap_target": "SAP Analytics Cloud", "pathway": "Import as SAC datasets or expose via HANA calculation views for live models."},
-        {"system": "LLM explanations", "status": "implemented (offline template)", "detail": "Provider-agnostic layer; OpenAI-compatible endpoint optional via env vars.",
-         "sap_target": "SAP Generative AI Hub", "pathway": "Adapter boundary exists (SapGenAiHubProvider); not connected in this prototype."},
-        {"system": "Agent orchestration & APIs", "status": "implemented locally", "detail": "FastAPI + dependency-ordered orchestrator with retries and audit.",
-         "sap_target": "SAP BTP (Cloud Foundry / Kyma)", "pathway": "Containerise backend; XSUAA for roles; Destination service for SAP systems."},
-        {"system": "Inventory & supply planning", "status": "proposed", "detail": "Not implemented.", "sap_target": "SAP IBP",
-         "pathway": "Publish return forecasts as supply signals; consume recovered-stock availability."},
-        {"system": "Transportation planning", "status": "proposed", "detail": "Not implemented.", "sap_target": "SAP Transportation Management",
-         "pathway": "Send pickup allocation and re-route plans as freight units / orders."},
-        {"system": "Supplier collaboration", "status": "proposed", "detail": "Not implemented.", "sap_target": "SAP Ariba / Business Network",
-         "pathway": "Deliver vendor quality alerts and QC holds to supplier portal."},
-    ]
+    """Short form of /api/sap/status, kept for older clients."""
+    from .sap import services
+    return [{"system": x["product"], "status": x["state"], "detail": x["today"], "sap_target": x["product"], "pathway": x["connect"]}
+            for x in services(db)]

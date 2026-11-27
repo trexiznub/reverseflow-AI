@@ -1,8 +1,13 @@
 """Database engine and session management.
 
-SQLite is used for the local prototype. All models use portable SQLAlchemy types
-(no SQLite-specific features), so the same schema can be pointed at PostgreSQL
-or SAP HANA Cloud (via sqlalchemy-hana) by changing DATABASE_URL.
+SQLite is used by default. All models use portable SQLAlchemy types (no
+SQLite-specific features), so the same schema runs on SAP HANA Cloud through
+sqlalchemy-hana. The database is chosen in this order:
+
+1. DATABASE_URL, for example hana://USER:PASSWORD@HOST:443?encrypt=true
+2. a SAP HANA Cloud service bound to the app on SAP BTP Cloud Foundry
+   (service "hana", plan "schema"; credentials arrive in VCAP_SERVICES)
+3. the local SQLite file backend/data/reverseflow.db
 """
 from __future__ import annotations
 
@@ -15,7 +20,21 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB = f"sqlite:///{BASE_DIR / 'data' / 'reverseflow.db'}"
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DB)
+
+
+def _hana_url() -> str | None:
+    from urllib.parse import quote_plus
+    from .sap.btp import binding
+    c = binding("hana", "hana-cloud")
+    if not c or not c.get("host"):
+        return None
+    url = f"hana://{quote_plus(c['user'])}:{quote_plus(c['password'])}@{c['host']}:{c.get('port', 443)}?encrypt=true&sslValidateCertificate=true"
+    if c.get("schema"):
+        url += f"&currentSchema={quote_plus(c['schema'])}"
+    return url
+
+
+DATABASE_URL = os.getenv("DATABASE_URL") or _hana_url() or DEFAULT_DB
 
 if DATABASE_URL.startswith("sqlite"):
     (BASE_DIR / "data").mkdir(exist_ok=True)
