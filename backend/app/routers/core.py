@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .. import bootstrap, llm
 from .. import models as m
 from ..db import get_db
-from ..rbac import PAGES, current_user, require
+from ..rbac import PAGES, auth_mode, current_user, require, require_admin
 from ..services import actions
 from ..services import settings as st
 
@@ -42,8 +42,8 @@ def meta(db: Session = Depends(get_db), user: m.User = Depends(current_user)):
     return {"scenario_date": st.scenario_date(db).isoformat(), "synthetic": True,
             "disclaimer": "All records are synthetic and all scenario numbers are illustrative assumptions for demonstration.",
             "user": {"id": user.id, "name": user.name, "role": user.role, "title": user.title, "scope_id": user.scope_id,
-                     "approval_limit": user.approval_limit},
-            "pages": PAGES.get(user.role, []), "status": bootstrap.status()}
+                     "approval_limit": user.approval_limit, "is_admin": bool(getattr(user, "is_admin", False))},
+            "auth_mode": auth_mode(), "pages": PAGES.get(user.role, []), "status": bootstrap.status()}
 
 
 @router.get("/users")
@@ -183,7 +183,7 @@ def put_setting(key: str, body: SettingIn, db: Session = Depends(get_db), user: 
 
 
 @router.post("/admin/reset")
-def admin_reset(db: Session = Depends(get_db), _: m.User = Depends(require("ops_manager"))):
+def admin_reset(db: Session = Depends(get_db), _: m.User = Depends(require_admin)):
     if bootstrap.status()["state"] in ("generating", "training", "orchestrating"):
         raise HTTPException(409, "reset already in progress")
     db.close()
@@ -192,8 +192,8 @@ def admin_reset(db: Session = Depends(get_db), _: m.User = Depends(require("ops_
 
 
 @router.get("/integrations")
-def integrations(db: Session = Depends(get_db), _: m.User = Depends(current_user)):
+def integrations(db: Session = Depends(get_db), _: m.User = Depends(require("internal"))):
     """Short form of /api/sap/status, kept for older clients."""
     from .sap import services
-    return [{"system": x["product"], "status": x["state"], "detail": x["today"], "sap_target": x["product"], "pathway": x["connect"]}
+    return [{"system": x["product"], "status": x["state"], "detail": x.get("detail") or x["does"], "sap_target": x["product"], "pathway": x["connect"]}
             for x in services(db)]

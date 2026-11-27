@@ -24,7 +24,7 @@ The **Why it matters** page (`/case`) walks through the problem statement, objec
 | **Return integrity** | Hard-evidence checks (tag, serial, weight) + IsolationForest behavioural score with per-component contributions. The only automated consequence is a *request for physical inspection*. |
 | **Reverse logistics** | Capacity-gap analysis and a linear programme (SciPy HiGHS) that allocates cluster volume to facilities by cost and capacity. |
 | **Resale Window Intelligence** | Transparent value-over-time model (grade, demand index from order history, obsolescence, refurbishment and storage costs) that sequences the inspection queue by value at risk instead of arrival order. |
-| **Return Wave Digital Twin** | Daily cohort simulation of pickup → line-haul → inspection → recovery with Poisson arrivals, Monte Carlo P10/P90, and four scenarios (Baseline, A extra pickup, B re-allocation, C combined + value priority). |
+| **Return Wave Digital Twin** | Daily cohort simulation of pickup → line-haul → inspection → recovery with Poisson arrivals and Monte Carlo P10/P90. It runs in the background to price the business case (doing nothing vs extra vans, re-routing and value-first inspection); the separate Planner page has been removed. |
 | **Human-in-the-loop** | Pending / approved / rejected / escalated with role checks, approval limits, mandatory reasons and a full decision log + audit trail. Approved actions change shared state (QC flags, size charts, routing, capacity). |
 | **Three experiences** | Customer portal, Partner Operations portal (vendor, 3PL, warehouse; scoped permissions) and the Marketplace Control Tower. |
 
@@ -32,18 +32,21 @@ The **Why it matters** page (`/case`) walks through the problem statement, objec
 
 ```
 frontend/  Next.js 15 · React 19 · TypeScript · Tailwind · Recharts · React Flow · Framer Motion
-   │  REST (X-User-Id persona header → roles & data scope)
-backend/   FastAPI · Pydantic · SQLAlchemy · pandas / NumPy · scikit-learn · SciPy
+   │  REST (/api). Demo: X-User-Id persona header. Production: SAP XSUAA token via the app router.
+sap-business-service/  SAP CAP (Node.js): OData V4 over the same tables, SAP roles, decisions forwarded to the backend
+backend/   FastAPI · Pydantic · SQLAlchemy · pandas / NumPy · scikit-learn · SciPy (AI engine)
    app/
      agents/          six agents (one file each) + shared AgentContext / AgentResult
      orchestrator.py  event plans, dependency order, retries, conflicts, persistence
      ml/              forecasting.py · nlp.py · anomaly.py · resale.py
-     simulation/      twin.py (Digital Twin)
+     simulation/      twin.py (Digital Twin engine, used by the business case)
      services/        intelligence.py (findings, graph) · actions.py (approvals & effects) · settings.py
      routers/         core · forecast · intel · ops · portals · analytics
      seed/            generate.py (deterministic synthetic data) · text_bank.py
      llm.py           LLM abstraction: offline template (default) · OpenAI-compatible · SAP Generative AI Hub (AI Core)
-     sap/             SAP BTP bindings, Destination service, outbox for SAP IBP / TM / Ariba
+     sap/             BTP bindings, Destination service, outbox (IBP / TM / Ariba), S/4HANA adapters,
+                      AI Core reader, connection tests (health.py)
+     tools/           migrate_to_hana.py (copy SQLite data into SAP HANA Cloud)
    tests/             end-to-end API tests
    data/              SQLite database (created on first start)
 ```
@@ -116,6 +119,8 @@ cd backend && .venv/bin/python -m app.seed.generate
 | `REVERSEFLOW_SAP_SANDBOX` | unset | `1` turns on a local test receiver at `/api/sap/sandbox/{system}`, to try sending without an SAP tenant |
 | `REVERSEFLOW_AUTH` + `XSUAA_URL`, `XSUAA_XSAPPNAME` | unset | XSUAA sign-in outside Cloud Foundry. On Cloud Foundry a bound `xsuaa` service switches it on by itself. |
 
+SAP S/4HANA, CAP, Analytics Cloud, AI Launchpad, Work Zone and production sign-in settings are listed in [docs/SAP_INTEGRATION.md](docs/SAP_INTEGRATION.md#environment-variables).
+
 `frontend/.env.example`: `NEXT_PUBLIC_API_URL` (default `http://localhost:8040`).
 
 No paid API is needed. With no LLM configured, explanations come from deterministic evidence templates and are labelled as such.
@@ -164,7 +169,7 @@ It creates the backend (`reverseflow-srv`), the website (`reverseflow-web`), the
 cd backend && .venv/bin/pytest -q
 ```
 
-The suite builds its own database (`tests/test_reverseflow.db`) and checks: forecast metrics computed and ML beating baseline in the surge window, all six agents completing with messages and conflicts, the planted vendor patterns being found, exactly 14 integrity flags with no automatic rejection, Twin recalculation, RBAC scoping, the full customer → 3PL → governance → warehouse flow, approval persistence and side effects, KPIs and SAC exports, retry after an injected agent fault, SAP outbox messages from approvals and forecasts, delivery when a system is connected, XSUAA token sign-in, and SAP Generative AI Hub explanations with fallback.
+The suite builds its own database (`tests/test_reverseflow.db`) and checks: forecast metrics computed and ML beating baseline in the surge window, all six agents completing with messages and conflicts, the planted vendor patterns being found, exactly 14 integrity flags with no automatic rejection, the simulation engine, Planner removal, RBAC scoping, the full customer → 3PL → governance → warehouse flow, approval persistence and side effects, KPIs and SAC exports, retry after an injected agent fault, SAP outbox messages from approvals and forecasts, delivery when a system is connected, XSUAA token sign-in and the Admin scope, production refusal of the demo header, the S/4HANA adapters (sandbox and live HTTP path), honest connection tests, grounded AI summaries, SAP Analytics Cloud datasets, and SAP Generative AI Hub explanations with fallback. The CAP service has its own checks: `cd sap-business-service && npm test` (with both servers running).
 
 ```bash
 cd frontend && npx tsc --noEmit && npm run build
@@ -187,15 +192,15 @@ Switch persona from the top-right menu. Each has its own permissions and data sc
 
 ## Demonstration script (about 10 minutes)
 
-Start from a clean state (Settings → Reset the demo) as **Rahul Mehta**. The top bar has Today, Decisions, Forecast, Product issues, Planner and Resale; Reports, How it works, the Customer and Partner apps and Settings are under **More**. The **Details** switch in the top bar shows the technical layer (model accuracy, raw agent data, test statistics) on every page; with it off, those sections are folded away.
+Start from a clean state (Settings → Reset the demo) as **Rahul Mehta**. The top bar has Today, Decisions, Forecast, Product issues and Resale; Reports, How it works, the Customer and Partner apps and Settings are under **More**. The **Details** switch in the top bar shows the technical layer (model accuracy, raw agent data, test statistics) on every page; with it off, those sections are folded away.
 
 1. **Today.** The headline, the four big figures and the "Start here" list say what is happening and what needs a decision. The map shows where returns will land; "Can we cope?" shows each city's van shortfall. *Behind the numbers* holds the T-7 … T-1 agent timeline, alerts and the feedback loop.
 2. **Customer app.** Switch to **Priya Sharma** → *Bandhani lehenga* → *Return or exchange* → Quality → "Stitching opened at the waistband during garba" → Refund → pickup slot (slots show *limited* because the Pune forecast exceeds van capacity) → Confirm. A `return_created` agent run starts.
 3. **Partner app.** Switch to **Vikram Joshi** (delivery partner). The new return is at the top of the list, marked *new*. *Complete pickup* and change the serial number; the return is flagged for a closer look at the warehouse. The refund is not held up.
 4. **How it works.** Back as Rahul. The six agents, who passed what to whom, where agents disagreed and how it was settled, and the decisions sent to people.
 5. **Product issues.** Pick Rangrez Textiles and click a seller, product, size or return to trace the problem; type a customer comment into *Try it*.
-6. **Planner.** Compare *Do nothing*, *More pickup vans*, *Use other warehouses* and *Both, best items first*; move *How big the wave is* or Pune's vans and watch the suggestion update. *Use the latest forecast* loads the forecast's busiest days.
-7. **Approve.** Decisions → *Send 21% of Pune returns to Nashik* → pick or type a reason → Approve. The routing change applies to new returns, the warehouse view and the Planner. Switch to **Kavya Iyer** to approve pausing Rangrez shipments; the seller's view in the Partner app then shows the pause.
+6. **Approve.** Decisions → *Send 21% of Pune returns to Nashik* → pick or type a reason → Approve. The routing change applies to new returns and the warehouse view, and a transport message for SAP TM appears on the SAP page. Switch to **Kavya Iyer** to approve pausing Rangrez shipments; the seller's view in the Partner app then shows the pause.
+7. **SAP.** More → SAP → *Test connections*. Only services a test actually reached show as connected; S/4HANA data is shown from the labelled sandbox until a system is connected.
 8. **History.** Decisions → *History* lists every portal action, agent run, decision and setting change.
 
 The flow is repeatable: reset and run it again.
@@ -206,23 +211,11 @@ Dark, monochrome interface: Archivo (display and body) with Geist Mono labels, h
 
 ## SAP integration
 
-Every connector is real code that switches on when its SAP service is bound (Cloud Foundry `VCAP_SERVICES`) or configured with environment variables. The **SAP** page shows the live state; nothing is shown as connected unless it is.
+Full details, environment variables, deployment and Work Zone steps: **[docs/SAP_INTEGRATION.md](docs/SAP_INTEGRATION.md)**.
 
-| SAP product | What it does here | State in the public demo |
-|---|---|---|
-| SAP Business Application Studio | Development environment; the app runs in a BAS dev space | **In use** |
-| SAP BTP, Cloud Foundry runtime | Hosts backend, website and application router (`mta.yaml`) | Ready to deploy |
-| XSUAA (Authorization and Trust Management) | SAP sign-in; token scopes decide the role (`app/rbac.py`, `xs-security.json`) | Built, not connected |
-| SAP HANA Cloud | Database; schema checked against the HANA dialect (`app/db.py`) | Built, not connected |
-| SAP Generative AI Hub (AI Core) | Plain-English explanation wording; decisions never depend on it (`app/llm.py`) | Built, not connected |
-| SAP IBP | Return forecast after every agent run, and recovered stock, as planning data | Built; messages wait in the outbox |
-| SAP Transportation Management | Approved extra vans and warehouse changes as transportation requests | Built; messages wait in the outbox |
-| SAP Ariba / Business Network | Approved quality holds, size-chart and listing fixes as quality notifications | Built; messages wait in the outbox |
-| SAP BTP Destination service | Addresses and sign-in for IBP, TM and Ariba, including on-premise via Cloud Connector | Built, not connected |
-| SAP Integration Suite | Maps our JSON messages to each system's exact API | Planned |
-| SAP Analytics Cloud | Four ready-to-import datasets (`/api/integrations/sac/*.csv`) | Working exports |
+Every connector is real code that switches on when its SAP service is bound (Cloud Foundry `VCAP_SERVICES`) or configured with environment variables. The **SAP** page shows each one as *Connected* (only after a test reached it), *Configured, not tested*, *Not configured*, *Missing entitlement* or *Connection failed*. In the public demo nothing is connected; S/4HANA data is served from a sandbox built from the synthetic data and labelled as such.
 
-How a decision reaches SAP: an approval on the **Decisions** page (or an auto-approved action within the spending limit) writes a message to the outbox (`app/sap/outbox.py`). If that system is connected the message is posted at once; otherwise it waits, and the Operations Manager can resend it from the SAP page. The message formats are modelled on the SAP APIs named above; the exact field mapping is meant to live in an Integration Suite flow and must be confirmed against a real tenant.
+How a decision reaches SAP: an approval on the **Decisions** page (or an auto-approved action within the spending limit) writes a message to the outbox (`app/sap/outbox.py`). If that system is connected the message is posted at once; otherwise it waits, and the Operations Manager can resend it from the SAP page. The message formats are modelled on the SAP APIs named in the guide; the exact field mapping is meant to live in an Integration Suite flow and must be confirmed against a real tenant.
 
 ## Design notes and honest limits
 
@@ -232,5 +225,5 @@ How a decision reaches SAP: an approval on the **Decisions** page (or an auto-ap
 * The anomaly model is unsupervised; no accuracy is claimed. Anomalies only ever trigger an inspection request.
 * Resale values come from configurable assumptions and the synthetic order history, not from market prices.
 * Business dates use the scenario clock (20 Oct 2026); audit timestamps use real wall-clock time.
-* Demo identity is a request header (the person switcher). With XSUAA bound, identity comes from the SAP token instead, and only Operations Managers can switch persona to present the demo.
-* The SAP connectors have been tested against stand-in receivers, not a live SAP IBP, TM, Ariba, HANA Cloud or AI Core tenant.
+* Demo identity is a request header (the person switcher). With XSUAA bound, identity comes from the SAP token and the header is ignored (an Admin may switch persona only with `REVERSEFLOW_DEMO_SWITCH=1`). On Cloud Foundry or with `REVERSEFLOW_ENV=production`, the header is refused outright.
+* The SAP connectors have been tested against stand-in receivers, not a live SAP IBP, TM, Ariba, S/4HANA, HANA Cloud, AI Core or Analytics Cloud tenant. See `docs/SAP_INTEGRATION.md` for what was tested and what each service needs.

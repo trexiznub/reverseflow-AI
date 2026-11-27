@@ -1,7 +1,7 @@
 "use client";
 import clsx from "clsx";
 import {
-  ArrowUp, BarChart3, Boxes, ChevronDown, CornerDownLeft, Handshake, LayoutGrid, Menu, Network, PackageOpen, RotateCcw, Search,
+  ArrowUp, BarChart3, ChevronDown, CornerDownLeft, Handshake, LayoutGrid, Menu, Network, PackageOpen, RotateCcw, Search,
   Plug, Settings2, ShieldCheck, Target, TrendingUp, Workflow, X,
 } from "lucide-react";
 import Link from "next/link";
@@ -18,7 +18,6 @@ export const NAV = [
   { id: "governance", href: "/governance", label: "Decisions", icon: ShieldCheck, primary: true, desc: "Approve or decline suggested actions" },
   { id: "forecasting", href: "/forecasting", label: "Forecast", icon: TrendingUp, primary: true, desc: "How many returns are coming, and where" },
   { id: "root-cause", href: "/root-cause", label: "Product issues", icon: Network, primary: true, desc: "Why items come back, by product and seller" },
-  { id: "twin", href: "/twin", label: "Planner", icon: Boxes, primary: true, desc: "Try plans before you commit to one" },
   { id: "recovery", href: "/recovery", label: "Resale", icon: RotateCcw, primary: true, desc: "Get returned items back on sale" },
   { id: "case", href: "/case", label: "Why it matters", icon: Target, primary: false, desc: "The problem, the economics and the use of SAP" },
   { id: "sap", href: "/sap", label: "SAP", icon: Plug, primary: false, desc: "SAP connections and messages for IBP, TM and Ariba" },

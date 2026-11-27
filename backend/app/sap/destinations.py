@@ -7,7 +7,8 @@ Two ways to connect a system, checked in this order:
        SAP_IBP_TOKEN_URL       OAuth token endpoint   } OAuth client
        SAP_IBP_CLIENT_ID                              } credentials
        SAP_IBP_CLIENT_SECRET                          }
-   or  SAP_IBP_USER / SAP_IBP_PASSWORD for basic authentication.
+   or  SAP_IBP_USER / SAP_IBP_PASSWORD for basic authentication,
+   or  SAP_IBP_API_KEY for the SAP Business Accelerator Hub sandbox.
 
 2. The SAP BTP Destination service, when it is bound to the app. The
    destination is looked up by name (default "reverseflow-ibp", or the value
@@ -50,6 +51,8 @@ def _from_env(system: str) -> Connection | None:
     if _env(system, "TOKEN_URL") and _env(system, "CLIENT_ID"):
         tok = btp.client_credentials_token(_env(system, "TOKEN_URL"), _env(system, "CLIENT_ID"), _env(system, "CLIENT_SECRET") or "")
         headers["Authorization"] = f"Bearer {tok}"
+    elif _env(system, "API_KEY"):  # SAP Business Accelerator Hub sandbox
+        headers["APIKey"] = _env(system, "API_KEY")
     elif _env(system, "USER"):
         pair = f"{_env(system, 'USER')}:{_env(system, 'PASSWORD') or ''}".encode()
         headers["Authorization"] = "Basic " + base64.b64encode(pair).decode()

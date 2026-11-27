@@ -108,12 +108,20 @@ def test_integrity_flags_and_no_auto_rejection(client):
     assert all(x["recommendation"]["kind"] == "integrity_inspection" for x in hard)
 
 
-def test_twin_recalculates(client):
-    base = client.post("/api/twin/simulate", json={"params": {"replications": 10}}, headers=OPS).json()
-    heavy = client.post("/api/twin/simulate", json={"params": {"replications": 10, "surge_intensity": 1.8}}, headers=OPS).json()
+def test_simulation_engine_still_drives_case_numbers():
+    """The Planner page is gone; the simulation engine stays for the business case."""
+    from app.simulation import twin
+    base = twin.run({"replications": 10}, ["baseline", "C"])
+    heavy = twin.run({"replications": 10, "surge_intensity": 1.8}, ["baseline"])
     b, h = base["scenarios"]["baseline"]["kpis"], heavy["scenarios"]["baseline"]["kpis"]
     assert h["peak_pickup_backlog"]["mean"] > b["peak_pickup_backlog"]["mean"]
     assert base["scenarios"]["C"]["kpis"]["value_at_risk"]["mean"] < b["value_at_risk"]["mean"]
+
+
+def test_planner_removed(client):
+    assert client.post("/api/twin/simulate", json={}, headers=OPS).status_code == 404
+    assert client.get("/api/twin/defaults", headers=OPS).status_code == 404
+    assert "twin" not in client.get("/api/meta", headers=OPS).json()["pages"]
 
 
 def test_rbac(client):
@@ -215,11 +223,13 @@ def test_sap_delivery_when_connected(client, monkeypatch):
 def test_sap_status_and_case(client):
     st = client.get("/api/sap/status", headers=OPS).json()
     by = {s["id"]: s for s in st["services"]}
-    assert by["bas"]["state"] == "in_use" and by["hana"]["state"] == "ready" and by["tm"]["state"] == "ready"
+    # nothing is set up in tests, so nothing may claim to be connected
+    assert by["hana"]["state"] == "not_configured" and by["tm"]["state"] == "not_configured" and by["cap"]["state"] == "not_configured"
+    assert st["counts"]["connected"] == 0 and "bas" not in by and by["s4"]["sandbox"] is True
     assert st["auth_mode"] == "demo"
     c = client.get("/api/case", headers=OPS).json()
     assert c["facts"] and c["assumptions"] and c["sources"]
-    p = c["demo"]["planner"]
+    p = c["demo"]["simulation"]
     assert p["baseline"]["value_lost"] > p["C"]["value_lost"] > 0 and 0 < p["reduction"] < 1
     assert c["demo"]["seller"]["share"] > c["demo"]["seller"]["others_share"]
 
@@ -235,6 +245,17 @@ def test_xsuaa_sign_in(client, monkeypatch):
     me = client.get("/api/meta", headers={"Authorization": "Bearer good", "X-User-Id": "U-RAHUL"}).json()
     assert me["user"]["role"] == "warehouse_manager"  # can't switch persona without the ops scope
     assert client.get("/api/sap/status", headers={"Authorization": "Bearer good"}).json()["auth_mode"] == "xsuaa"
+    # an operations manager without the Admin scope can no longer switch persona
+    monkeypatch.setattr(rbac, "_verify", lambda tok: {"_scopes": {"OpsManager"} if tok == "ops" else {"Admin"}})
+    monkeypatch.setenv("REVERSEFLOW_DEMO_SWITCH", "1")
+    me = client.get("/api/meta", headers={"Authorization": "Bearer ops", "X-User-Id": "U-NEHA"}).json()
+    assert me["user"]["id"] == "U-RAHUL" and me["user"]["is_admin"] is False
+    assert client.post("/api/sap/status/test", headers={"Authorization": "Bearer ops"}).status_code == 403
+    me = client.get("/api/meta", headers={"Authorization": "Bearer admin", "X-User-Id": "U-NEHA"}).json()
+    assert me["user"]["id"] == "U-NEHA"  # admin presenting another persona, only with REVERSEFLOW_DEMO_SWITCH=1
+    monkeypatch.delenv("REVERSEFLOW_DEMO_SWITCH")
+    me = client.get("/api/meta", headers={"Authorization": "Bearer admin", "X-User-Id": "U-NEHA"}).json()
+    assert me["user"]["role"] == "ops_manager" and me["user"]["is_admin"] is True
 
 
 def test_sap_genai_hub_explanations(monkeypatch):
@@ -298,3 +319,86 @@ def test_snapshot_restore(tmp_path):
     n, secs = out.stdout.split()
     assert int(n) > 15000
     assert float(secs) < 20
+
+
+def test_s4hana_sandbox_is_labelled(client):
+    r = client.get("/api/sap/s4/customer_returns?top=3", headers=OPS).json()
+    assert r["source"] == "sandbox" and "Not from an SAP S/4HANA system" in r["label"]
+    assert r["api"] == "/sap/opu/odata/sap/API_CUSTOMER_RETURN_SRV/A_CustomerReturn"
+    assert len(r["records"]) == 3 and r["records"][0]["CustomerReturn"].startswith("RT")
+    for e in ("sales_orders", "products", "suppliers", "stock", "deliveries"):
+        assert client.get(f"/api/sap/s4/{e}?top=2", headers=OPS).json()["records"], e
+    assert client.get("/api/sap/s4/nope", headers=OPS).status_code == 404
+    assert client.get("/api/sap/s4/products", headers=VENDOR).status_code == 403
+
+
+def test_s4hana_live_path_through_http_sandbox(client, monkeypatch):
+    """The live adapter, pointed at the HTTP sandbox, gets the same OData answer."""
+    from app.sap import s4hana
+    from app.db import SessionLocal
+    monkeypatch.setenv("REVERSEFLOW_SAP_SANDBOX", "1")
+    monkeypatch.setenv("SAP_S4_URL", "http://s4.test")
+    monkeypatch.setenv("SAP_S4_API_KEY", "k")
+    seen = {}
+
+    def fake_http(method, url, body=None, headers=None, timeout=15):
+        seen["url"], seen["headers"] = url, headers
+        path = url.replace("http://s4.test", "/api/sap/s4-sandbox")
+        r = client.get(path)
+        return r.status_code, r.json()
+    monkeypatch.setattr(s4hana.btp, "http_json", fake_http)
+    with SessionLocal() as db:
+        r = s4hana.fetch(db, "products", top=2)
+    assert r["source"] == "s4hana" and r["ok"] and len(r["records"]) == 2
+    assert seen["headers"]["APIKey"] == "k" and "API_PRODUCT_SRV/A_Product" in seen["url"]
+
+
+def test_connection_tests_report_failures_honestly(client, monkeypatch):
+    monkeypatch.setenv("CAP_URL", "http://127.0.0.1:9")  # nothing listens here
+    before = {s["id"]: s for s in client.get("/api/sap/status", headers=OPS).json()["services"]}
+    assert before["cap"]["state"] == "configured"
+    assert client.post("/api/sap/status/test", headers=VQM).status_code == 403  # admin only
+    after = {s["id"]: s for s in client.post("/api/sap/status/test", headers=OPS).json()["services"]}
+    assert after["cap"]["state"] == "failed" and after["cap"]["tested_at"]
+    monkeypatch.setenv("CAP_URL", "http://127.0.0.1:10")  # a new setting clears the old result
+    again = {s["id"]: s for s in client.get("/api/sap/status", headers=OPS).json()["services"]}
+    assert again["cap"]["state"] == "configured"
+
+
+def test_production_refuses_demo_header(client, monkeypatch):
+    monkeypatch.setenv("REVERSEFLOW_ENV", "production")
+    assert client.get("/api/meta", headers=OPS).status_code == 401
+    monkeypatch.setenv("REVERSEFLOW_ALLOW_DEMO_AUTH", "1")
+    assert client.get("/api/meta", headers=OPS).status_code == 200
+
+
+def test_admin_only_actions(client):
+    assert client.get("/api/meta", headers=OPS).json()["user"]["is_admin"] is True
+    assert client.get("/api/meta", headers=VQM).json()["user"]["is_admin"] is False
+    assert client.post("/api/admin/reset", headers=VQM).status_code == 403
+
+
+def test_ai_summaries_are_grounded(client):
+    c = client.get("/api/ai/summary/compliance_summary", headers=OPS).json()
+    assert c["source"] == "template" and str(c["facts"]["total"]) in c["text"]
+    sku = client.get("/api/intelligence/summary", headers=OPS).json()["sku_findings"][0]["sku"]
+    r = client.get(f"/api/ai/summary/return_comments?sku={sku}", headers=OPS).json()
+    assert sku in r["text"] and r["facts"]["n"] > 0
+
+
+def test_sac_datasets(client):
+    for d in ("returns_fact", "corrective_actions", "pickup_performance", "warehouse_daily"):
+        r = client.get(f"/api/integrations/sac/{d}.csv", headers=OPS)
+        assert r.status_code == 200 and len(r.text.splitlines()) > 1, d
+    assert "days_to_resale" in client.get("/api/integrations/sac/returns_fact.csv", headers=OPS).text.splitlines()[0]
+
+
+def test_test_receivers_never_count_as_connected(client, monkeypatch):
+    from app.sap import health, s4hana
+    monkeypatch.setenv("REVERSEFLOW_SAP_SANDBOX", "1")
+    monkeypatch.setenv("SAP_S4_URL", "http://s4.test")
+    monkeypatch.setattr(s4hana.btp, "http_json", lambda m_, url, body=None, headers=None, timeout=15:
+                        (lambda r: (r.status_code, r.json()))(client.get(url.replace("http://s4.test", "/api/sap/s4-sandbox"))))
+    by = {s["id"]: s for s in client.post("/api/sap/status/test", headers=OPS).json()["services"]}
+    assert by["s4"]["state"] == "configured" and "test sandbox" in by["s4"]["detail"]
+    health.clear()

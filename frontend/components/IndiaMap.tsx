@@ -1,35 +1,13 @@
 "use client";
 import clsx from "clsx";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { mult, num } from "@/lib/format";
 
-// Simplified outline of India (lon, lat). Rendered as a dot matrix, so the
-// coarse geometry reads as a stylised map rather than a survey boundary.
-const OUTLINE: [number, number][] = [
-  [68.2, 23.7], [68.9, 22.4], [70.1, 20.9], [71.6, 20.7], [72.6, 21.3], [72.9, 20.2], [72.8, 19.0], [73.2, 17.4], [73.6, 16.2], [74.0, 15.0],
-  [74.6, 13.6], [74.9, 12.6], [75.6, 11.5], [76.1, 10.3], [76.6, 8.9], [77.5, 8.1], [78.2, 8.9], [79.0, 9.3], [79.3, 10.3], [79.8, 11.6],
-  [80.2, 13.0], [80.1, 14.6], [80.5, 15.7], [81.3, 16.3], [82.3, 16.7], [83.4, 17.9], [84.8, 19.2], [86.3, 19.9], [86.9, 21.0], [87.6, 21.6],
-  [88.6, 21.7], [89.0, 22.2], [88.8, 23.4], [88.5, 24.4], [88.1, 24.8], [88.6, 25.8], [89.8, 25.9], [92.2, 25.1], [92.6, 23.0], [93.3, 23.3],
-  [93.9, 24.5], [94.6, 25.8], [95.2, 26.6], [96.2, 27.3], [97.3, 28.1], [96.4, 28.9], [95.3, 29.1], [94.2, 28.7], [92.6, 27.9], [91.6, 27.8],
-  [90.3, 26.9], [89.0, 26.9], [88.8, 27.3], [88.2, 27.9], [88.0, 26.5], [86.1, 26.5], [85.0, 26.9], [84.1, 27.4], [83.3, 27.4], [81.9, 27.9],
-  [80.9, 28.6], [80.1, 28.9], [80.6, 29.9], [81.0, 30.3], [79.4, 31.0], [78.8, 31.7], [78.8, 32.5], [79.5, 32.7], [79.5, 34.0], [78.5, 35.0],
-  [77.8, 35.5], [76.3, 35.8], [75.4, 36.6], [74.7, 36.9], [73.8, 36.0], [74.0, 34.9], [73.9, 34.0], [74.3, 33.0], [74.6, 32.5], [75.2, 32.2],
-  [74.6, 31.1], [74.0, 30.3], [73.4, 29.9], [72.9, 29.0], [72.1, 28.2], [71.0, 27.9], [70.2, 27.6], [69.6, 27.0], [70.1, 26.3], [70.6, 25.7],
-  [70.9, 25.1], [70.1, 24.4], [69.2, 24.3], [68.7, 23.9],
-];
+import { GEO, INDIA_PATH, STATE_PATHS } from "./india-geo";
 
+// Boundaries: DataMeet India (CC BY 4.0), following the Survey of India boundary.
 const LEFT_LABEL = new Set(["BOM", "PNQ", "AMD"]);
-const LON0 = 65.6, LAT0 = 37.5, K = 9.2;
-const project = (lon: number, lat: number) => [(lon - LON0) * K, (LAT0 - lat) * K * 1.05] as const;
-
-function inside(lon: number, lat: number) {
-  let c = false;
-  for (let i = 0, j = OUTLINE.length - 1; i < OUTLINE.length; j = i++) {
-    const [xi, yi] = OUTLINE[i], [xj, yj] = OUTLINE[j];
-    if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) c = !c;
-  }
-  return c;
-}
+const project = (lon: number, lat: number) => [(lon - GEO.lon0) * GEO.k, (GEO.lat0 - lat) * GEO.k * GEO.ky] as const;
 
 export type MapCluster = { id: string; city: string; lat: number; lon: number; risk?: string; avg_multiplier?: number; expected_network_7d?: number };
 export type MapFacility = { id: string; name: string; city: string; lat: number; lon: number; kind: string; inspection_capacity: number };
@@ -38,29 +16,33 @@ export type MapFlow = { from: [number, number]; to: [number, number]; label?: st
 export function IndiaMap({ clusters, facilities = [], flows = [], height = 420, onSelect, selected }:
   { clusters: MapCluster[]; facilities?: MapFacility[]; flows?: MapFlow[]; height?: number; onSelect?: (id: string) => void; selected?: string | null }) {
   const [hover, setHover] = useState<MapCluster | null>(null);
-  const dots = useMemo(() => {
-    const out: [number, number][] = [];
-    for (let lat = 37; lat >= 6.5; lat -= 0.42) for (let lon = 68; lon <= 97.5; lon += 0.42) if (inside(lon, lat)) out.push([lon, lat]);
-    return out;
-  }, []);
   const maxVol = Math.max(1, ...clusters.map((c) => c.expected_network_7d || 0));
-  const W = (97.8 - LON0) * K, H = (LAT0 - 6.2) * K * 1.05;
+  const W = GEO.width, H = GEO.height;
   const color = (r?: string) => (r === "high" ? "#F0583E" : r === "elevated" ? "#E3A33B" : "#BDBDBD");
   return (
     <div className="relative" style={{ height }}>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-full w-full" role="img" aria-label="Regional return risk map">
-        {dots.map(([lon, lat], i) => {
-          const [x, y] = project(lon, lat);
-          return <circle key={i} cx={x} cy={y} r={1.25} fill="#2B2B2B" />;
-        })}
+        <path d={INDIA_PATH} fill="#1A1A1A" />
+        <g fill="none" stroke="#333" strokeWidth={0.5} strokeLinejoin="round">
+          {STATE_PATHS.map((s) => <path key={s.name} d={s.d}><title>{s.name}</title></path>)}
+        </g>
+        <path d={INDIA_PATH} fill="none" stroke="#5A5A5A" strokeWidth={0.8} strokeLinejoin="round" />
         {flows.map((f, i) => {
           const [x1, y1] = project(f.from[0], f.from[1]);
           const [x2, y2] = project(f.to[0], f.to[1]);
-          const mx = (x1 + x2) / 2 - (y2 - y1) * 0.3, my = (y1 + y2) / 2 + (x2 - x1) * 0.3;
+          // Bend each flow to one side, with a minimum bulge so short hops (Pune → Nashik) stay visible,
+          // and put its label clear of the arc on the outer side, away from the city circles.
+          const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+          const nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
+          const bulge = Math.max(0.3 * len, 16);
+          const mx = (x1 + x2) / 2 + nx * bulge, my = (y1 + y2) / 2 + ny * bulge;
+          const ax = 0.25 * x1 + 0.5 * mx + 0.25 * x2, ay = 0.25 * y1 + 0.5 * my + 0.25 * y2;
+          const lx = ax + nx * 6, ly = ay + ny * 6 + 3;
           return (
             <g key={i}>
               <path d={`M${x1},${y1} Q${mx},${my} ${x2},${y2}`} fill="none" stroke="#F2F2F2" strokeWidth={1.2} strokeDasharray="4 4" className="animate-dash" />
-              {f.label && <text x={mx} y={my - 3} fontSize={8} fill="#F2F2F2" textAnchor="middle" fontFamily="var(--font-mono)" fontWeight={600}>{f.label}</text>}
+              {f.label && <text x={lx} y={ly} fontSize={8} fill="#F2F2F2" textAnchor={nx >= 0 ? "start" : "end"} fontFamily="var(--font-mono)" fontWeight={600}
+                paintOrder="stroke" stroke="#000" strokeWidth={2.5}>{f.label}</text>}
             </g>
           );
         })}
@@ -110,6 +92,7 @@ export function IndiaMap({ clusters, facilities = [], flows = [], height = 420, 
         ))}
         {facilities.length > 0 && <span className="flex items-center gap-1"><span className="h-2 w-2 rotate-45 border border-navy-900 bg-white" />Warehouse</span>}
         <span>Bigger circle = more returns</span>
+        <span className="text-ink-400">Boundaries: DataMeet, CC BY 4.0</span>
       </div>
     </div>
   );

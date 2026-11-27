@@ -1,5 +1,5 @@
-"""SAP connections: what each SAP product does here, whether it is connected,
-and the outbox of messages prepared for SAP IBP, TM and Ariba."""
+"""SAP connections: what each SAP service does here, its tested state, the
+S/4HANA and AI Core readers, and the outbox of messages for IBP, TM and Ariba."""
 from __future__ import annotations
 
 import os
@@ -9,83 +9,100 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import llm
 from .. import models as m
-from ..db import get_db
-from ..rbac import auth_mode, require
-from ..sap import btp, destinations, outbox
+from ..db import get_db, session_scope
+from ..rbac import auth_mode, require, require_admin
+from ..sap import aicore, btp, destinations, health, outbox, s4hana
 from ..services import actions
 from ..services import settings as st
 
 router = APIRouter()
 
-
-def _state(connected: bool, built: bool = True) -> str:
-    return "connected" if connected else ("ready" if built else "planned")
+GROUPS_ORDER = ["Platform", "Data and AI", "Business systems", "Analytics and access"]
+STATES = ("connected", "configured", "not_configured", "no_entitlement", "failed")
 
 
 def services(db: Session) -> list[dict]:
-    dialect = db.bind.dialect.name
+    """Every SAP service the app can use, with its real state (see sap/health.py)."""
+    state = health.current(db)
     counts = outbox.summary(db)
     llm_choice = (st.get(db, "llm", {}) or {}).get("provider", "template")
-    genai = llm.SapGenAiHubProvider()
-    on_cf = btp.on_cloud_foundry()
+    s4_sandbox = not s4hana.configured() and s4hana.sandbox_enabled()
 
-    def system(sid: str, product: str, does: str, messages: str) -> dict:
-        how = destinations.configured(sid)
-        return {"id": sid, "product": product, "group": "Run the business", "does": does,
-                "state": _state(bool(how)), "via": how, "messages": counts[sid],
-                "today": (f"Connected through {how}. Approved decisions are sent as soon as they are made." if how else
-                          f"Built and working: {messages} They wait in the outbox below, because no {product} system is connected."),
-                "connect": f"Set SAP_{sid.upper()}_URL (and SAP_{sid.upper()}_TOKEN_URL, _CLIENT_ID, _CLIENT_SECRET), "
-                           f"or bind the Destination service and create a destination named {destinations.destination_name(sid)}."}
+    def svc(sid, product, group, does, connect, needs, **extra):
+        return {"id": sid, "product": product, "group": group, "does": does, "connect": connect, "needs": needs,
+                **state.get(sid, {"state": "not_configured", "detail": None, "tested_at": None}), **extra}
+
+    def system(sid, product, does, built):
+        return svc(sid, product, "Business systems", does,
+                   f"Set SAP_{sid.upper()}_URL (with SAP_{sid.upper()}_TOKEN_URL, _CLIENT_ID, _CLIENT_SECRET, or _USER/_PASSWORD), "
+                   f"or bind the Destination service and create a destination named {destinations.destination_name(sid)}.",
+                   f"A {product} tenant and an inbound API (usually through SAP Integration Suite).",
+                   messages=counts[sid], built=built)
 
     return [
-        {"id": "bas", "product": "SAP Business Application Studio", "group": "Build and run", "state": "in_use",
-         "does": "The development environment. The whole app is developed and run in a BAS dev space.",
-         "today": "In use: the backend and website run side by side in the hackathon dev space.", "connect": "Already in use."},
-        {"id": "btp", "product": "SAP BTP, Cloud Foundry runtime", "group": "Build and run", "state": "in_use" if on_cf else "ready",
-         "does": "Hosts the app on SAP's cloud, next to the SAP services it uses.",
-         "today": f"Running on Cloud Foundry as {btp.app_info().get('application_name', 'reverseflow')}." if on_cf else
-                  "Ready to deploy: mta.yaml describes the backend, website, sign-in router and services. Run it from BAS with mbt build and cf deploy.",
-         "connect": "In BAS: mbt build, then cf deploy mta_archives/reverseflow_1.0.0.mtar"},
-        {"id": "xsuaa", "product": "SAP Authorization and Trust Management (XSUAA)", "group": "Build and run",
-         "state": _state(auth_mode() == "xsuaa"),
-         "does": "Real sign-in with SAP ID or your company's identity provider. Roles and approval rights come from role collections.",
-         "today": "Connected: every request needs an SAP sign-in, and roles come from the token." if auth_mode() == "xsuaa" else
-                  "Built and working in code: token checks and role mapping switch on when XSUAA is bound. The demo uses the person switcher instead.",
-         "connect": "Bind an xsuaa service created from xs-security.json (the mta.yaml does this)."},
-        {"id": "hana", "product": "SAP HANA Cloud", "group": "Data", "state": _state(dialect == "hana"),
-         "does": "One fast database for orders, returns, stock and forecasts, so the agents and SAP Analytics Cloud read the same data.",
-         "today": "Connected: all app data is stored in SAP HANA Cloud." if dialect == "hana" else
-                  f"Ready: the schema is portable and checked against the HANA dialect. The demo stores data in {dialect}.",
-         "connect": "Bind a HANA Cloud schema (service hana, plan schema), or set DATABASE_URL=hana://USER:PASSWORD@HOST:443?encrypt=true"},
-        {"id": "genai", "product": "SAP Generative AI Hub (SAP AI Core)", "group": "Data",
-         "state": "in_use" if genai.configured and llm_choice == "sap_genai_hub" else _state(genai.configured),
-         "does": "Writes the plain-English explanation behind each suggestion. It never makes the decision; the models and rules do.",
-         "today": ("In use for explanations." if genai.configured and llm_choice == "sap_genai_hub" else
-                   "Connected. Choose it under Settings to use it for explanations." if genai.configured else
-                   "Built: the AI Core client is in place. Explanations use offline templates until a model deployment is connected."),
-         "connect": "Bind the aicore service and set AICORE_DEPLOYMENT_ID to a chat-model deployment, then pick SAP Generative AI Hub in Settings."},
+        svc("btp", "SAP BTP, Cloud Foundry runtime", "Platform",
+            "Hosts the backend, the CAP business service and the website next to the SAP services they use.",
+            "In SAP Business Application Studio: mbt build, then cf deploy mta_archives/reverseflow_1.0.0.mtar",
+            "A BTP subaccount with Cloud Foundry enabled and a space (free tier is enough)."),
+        svc("xsuaa", "SAP Authorization and Trust Management (XSUAA)", "Platform",
+            "Sign-in with SAP ID or your company's identity provider. Roles and approval rights come from role collections.",
+            "Bind an xsuaa service created from xs-security.json (mta.yaml does this), then assign the ReverseFlow role collections.",
+            "Authorization and Trust Management (application plan), included in BTP."),
+        svc("destination", "SAP BTP Destination service", "Platform",
+            "Keeps addresses and sign-in details of S/4HANA, IBP, TM and Ariba outside the code, including on-premise systems through Cloud Connector.",
+            "Bind a destination service (plan lite) and create destinations reverseflow-s4, reverseflow-ibp, reverseflow-tm, reverseflow-ariba.",
+            "Destination service (lite plan), included in BTP."),
+        svc("cap", "SAP Cloud Application Programming Model (CAP)", "Platform",
+            "The business service: OData V4 access to orders, returns, sellers, stock, corrective actions, approvals and the audit log, "
+            "with SAP roles. AI work stays in this backend; CAP calls it for decisions and seller scores.",
+            "Run sap-business-service (npm start) and set CAP_URL to its address. On BTP, mta.yaml deploys it and sets CAP_URL.",
+            "Nothing extra: runs on Cloud Foundry next to the backend."),
+        svc("hana", "SAP HANA Cloud", "Data and AI",
+            "One database for orders, returns, stock and forecasts, shared by this backend, the CAP service and SAP Analytics Cloud.",
+            "Bind a HANA Cloud schema (service hana, plan schema), or set DATABASE_URL=hana://USER:PASSWORD@HOST:443?encrypt=true. "
+            "Copy the demo data with: python -m app.tools.migrate_to_hana",
+            "A HANA Cloud instance (free tier) in the subaccount, and the hana schema plan entitled.",
+            database=db.bind.dialect.name),
+        svc("genai", "SAP Generative AI Hub", "Data and AI",
+            "Writes the plain-English explanations: return comments, seller quality summaries, root causes and corrective actions. "
+            "It never decides or approves; forecasts, scores and money figures stay with the models and rules.",
+            "Bind the aicore service, set AICORE_DEPLOYMENT_ID to a running chat-model deployment, then pick SAP Generative AI Hub in Settings.",
+            "SAP AI Core (extended plan for Generative AI Hub models) and a running model deployment.",
+            selected=llm_choice == "sap_genai_hub"),
+        svc("aicore", "SAP AI Core", "Data and AI",
+            "Model lifecycle: scenarios, configurations, deployments and executions for the AI models the app uses.",
+            "Bind the aicore service (or set AICORE_AUTH_URL, AICORE_CLIENT_ID, AICORE_CLIENT_SECRET, AICORE_BASE_URL).",
+            "SAP AI Core entitlement and a resource group."),
+        svc("launchpad", "SAP AI Launchpad", "Data and AI",
+            "SAP's screens for managing AI Core: deployments, versions, runs and the Generative AI Hub prompt tools.",
+            "Subscribe to AI Launchpad, connect it to the AI Core instance, and set AI_LAUNCHPAD_URL so the link shows here.",
+            "SAP AI Launchpad subscription (standard plan)."),
+        svc("s4", "SAP S/4HANA", "Business systems",
+            "Source of sales orders, customer returns, products, suppliers, stock by plant and deliveries (read-only, SAP's published OData APIs).",
+            "Set SAP_S4_URL with SAP_S4_API_KEY (SAP Business Accelerator Hub sandbox) or a communication user or OAuth client, "
+            "or create destination reverseflow-s4.",
+            "An S/4HANA system with these APIs enabled, or a free SAP Business Accelerator Hub API key for its sandbox.",
+            sandbox=s4_sandbox),
         system("ibp", "SAP Integrated Business Planning", "Planners see returning stock as incoming supply, so they buy and allocate less new stock.",
-               "after every agent run the return forecast is prepared as IBP planning data, and recovered stock as extra supply."),
-        system("tm", "SAP Transportation Management", "Approved extra vans and warehouse changes become real transport bookings with the carrier.",
-               "each approved van booking or warehouse change becomes a transportation request."),
+               "After every agent run the return forecast is prepared as IBP planning data, and recovered stock as extra supply."),
+        system("tm", "SAP Transportation Management", "Approved extra vans and warehouse changes become transport bookings with the carrier.",
+               "Each approved van booking or warehouse change becomes a transportation request."),
         system("ariba", "SAP Ariba / SAP Business Network", "Quality holds and fix requests reach the seller in the supplier network they already use.",
-               "each approved quality hold, size-chart or listing fix becomes a quality notification for the seller."),
-        {"id": "destination", "product": "SAP BTP Destination service", "group": "Connect", "state": _state(bool(btp.binding("destination"))),
-         "does": "Keeps the addresses and sign-in details of IBP, TM and Ariba outside the code, including on-premise systems through Cloud Connector.",
-         "today": "Bound: SAP systems are looked up by destination name." if btp.binding("destination") else
-                  "Built: destination lookup is in the code and switches on when the service is bound.",
-         "connect": "Bind a destination service (plan lite) and create destinations reverseflow-ibp, reverseflow-tm and reverseflow-ariba."},
-        {"id": "integration_suite", "product": "SAP Integration Suite", "group": "Connect", "state": "planned",
-         "does": "Maps our messages to each system's exact API (IBP planning data, TM freight units, Ariba cXML).",
-         "today": "Planned. Our messages are plain JSON documents; an Integration Suite flow would translate them for each system.",
-         "connect": "Point SAP_IBP_URL, SAP_TM_URL and SAP_ARIBA_URL (or the destinations) at the integration flows."},
-        {"id": "sac", "product": "SAP Analytics Cloud", "group": "Report", "state": "ready",
-         "does": "Management dashboards and planning for leadership.",
-         "today": "Working: four ready-to-import datasets (returns, forecast, seller scorecard, resale list) under Reports.",
-         "connect": "Import the CSV files in SAC, or build a live model on the HANA Cloud tables."},
+               "Each approved quality hold, size-chart or listing fix becomes a quality notification for the seller."),
+        {"id": "integration_suite", "product": "SAP Integration Suite", "group": "Business systems", "state": "not_configured", "detail": None,
+         "tested_at": None, "does": "Maps our JSON messages to each system's exact API (IBP planning data, TM freight units, Ariba cXML).",
+         "connect": "Build one integration flow per system, then point SAP_IBP_URL, SAP_TM_URL and SAP_ARIBA_URL at them.",
+         "needs": "SAP Integration Suite entitlement. The flows are not part of this project."},
+        svc("sac", "SAP Analytics Cloud", "Analytics and access",
+            "Executive dashboards: returns, seller performance, reverse logistics and inventory recovery.",
+            "Live: create a live connection to the HANA Cloud tables. Import: load the datasets under Reports. "
+            "To test from here set SAC_URL, SAC_TOKEN_URL, SAC_CLIENT_ID, SAC_CLIENT_SECRET.",
+            "An SAP Analytics Cloud tenant (trial or licensed) and an OAuth client in it."),
+        svc("workzone", "SAP Build Work Zone", "Analytics and access",
+            "Puts ReverseFlow on the company launchpad next to other SAP apps, with SAP sign-in.",
+            "Add the app (the approuter URL) in the Work Zone Content Manager, add it to a group and role, then set WORKZONE_SITE_URL.",
+            "SAP Build Work Zone, standard edition subscription."),
     ]
 
 
@@ -93,8 +110,37 @@ def services(db: Session) -> list[dict]:
 def sap_status(db: Session = Depends(get_db), _: m.User = Depends(require("internal"))):
     items = services(db)
     return {"auth_mode": auth_mode(), "on_cloud_foundry": btp.on_cloud_foundry(), "database": db.bind.dialect.name,
-            "services": items, "outbox": outbox.summary(db),
-            "counts": {s: sum(1 for i in items if i["state"] == s) for s in ("in_use", "connected", "ready", "planned")}}
+            "services": items, "outbox": outbox.summary(db), "groups": GROUPS_ORDER,
+            "counts": {s: sum(1 for i in items if i["state"] == s) for s in STATES},
+            "links": {"launchpad": os.getenv("AI_LAUNCHPAD_URL"), "workzone": os.getenv("WORKZONE_SITE_URL"), "cap": os.getenv("CAP_URL")}}
+
+
+@router.post("/sap/status/test")
+def sap_test(db: Session = Depends(get_db), user: m.User = Depends(require_admin)):
+    """Run a real connection test against every configured SAP service."""
+    health.run_tests(session_scope)
+    out = sap_status(db, user)
+    actions.audit(db, user.name, "user", "sap.test_connections", "sap", "*", {s["id"]: s["state"] for s in out["services"]})
+    db.commit()
+    return out
+
+
+@router.get("/sap/s4")
+def s4_entities(_: m.User = Depends(require("internal"))):
+    return {"configured": s4hana.configured(), "sandbox": s4hana.sandbox_enabled(),
+            "entities": [{"id": k, "title": v["label"], "api": s4hana.path(k)} for k, v in s4hana.ENTITIES.items()]}
+
+
+@router.get("/sap/s4/{entity}")
+def s4_read(entity: str, top: int = 20, skip: int = 0, db: Session = Depends(get_db), _: m.User = Depends(require("internal"))):
+    if entity not in s4hana.ENTITIES:
+        raise HTTPException(404, f"entity must be one of {list(s4hana.ENTITIES)}")
+    return {**s4hana.fetch(db, entity, top, skip), "title": s4hana.ENTITIES[entity]["label"]}
+
+
+@router.get("/sap/aicore")
+def aicore_overview(_: m.User = Depends(require("internal"))):
+    return aicore.overview()
 
 
 @router.get("/sap/outbox")
@@ -157,3 +203,18 @@ async def sap_sandbox(system: str, request: Request):
     body = await request.json()
     return {"accepted": True, "system": system, "messageId": body.get("messageId"), "receivedAt": datetime.now().isoformat(timespec="seconds"),
             "note": "Test receiver, not an SAP system."}
+
+
+# The same S/4HANA sandbox over HTTP, at SAP's OData paths, so the live code path
+# can be tried end to end: SAP_S4_URL=http://localhost:8040/api/sap/s4-sandbox
+# Off unless REVERSEFLOW_SAP_SANDBOX=1. Synthetic data only.
+@router.get("/sap/s4-sandbox/sap/opu/odata/sap/{service}/{entity_set}")
+def s4_sandbox(service: str, entity_set: str, request: Request, db: Session = Depends(get_db)):
+    if os.getenv("REVERSEFLOW_SAP_SANDBOX") != "1":
+        raise HTTPException(404, "Not found")
+    match = next((k for k, v in s4hana.ENTITIES.items() if v["service"] == service and v["set"] == entity_set), None)
+    if not match:
+        raise HTTPException(404, "Unknown service or entity set")
+    top = int(request.query_params.get("$top", 20))
+    skip = int(request.query_params.get("$skip", 0))
+    return {"d": {"results": s4hana.sandbox_records(db, match, min(top, 200), skip)}, "__sandbox": s4hana.SANDBOX_LABEL}

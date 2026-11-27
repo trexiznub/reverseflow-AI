@@ -131,7 +131,12 @@ def kpis(db: Session = Depends(get_db), _: m.User = Depends(require("internal"))
     return {"scenario_date": D.isoformat(), "kpis": out, "note": "Worked out from the demo data and the latest agent run."}
 
 
-DATASETS = ("returns_fact", "forecast", "vendor_kpis", "recovery_queue")
+# Datasets for SAP Analytics Cloud (import), one per executive story:
+#   returns intelligence  -> returns_fact, forecast
+#   vendor performance    -> vendor_kpis, corrective_actions
+#   reverse logistics     -> pickup_performance, warehouse_daily
+#   inventory recovery    -> returns_fact (recovered value, days to resale), recovery_queue
+DATASETS = ("returns_fact", "forecast", "vendor_kpis", "corrective_actions", "pickup_performance", "warehouse_daily", "recovery_queue")
 
 
 @router.get("/integrations/sac/{dataset}.csv")
@@ -142,13 +147,28 @@ def sac_export(dataset: str, db: Session = Depends(get_db), _: m.User = Depends(
     if dataset == "returns_fact":
         df = pd.read_sql(text("""SELECT r.id return_id, r.request_date, r.cluster_id, r.vendor_id, r.sku, p.category, r.size, r.price,
                                         COALESCE(r.verified_reason, r.predicted_reason) reason, r.status, r.grade, r.recovery_action, r.recovered_value,
-                                        r.pickup_sla_met, r.facility_id, r.is_synthetic FROM returns r JOIN products p ON p.sku=r.sku"""), db.bind)
+                                        r.pickup_sla_met, r.pickup_cost, r.facility_id, r.received_date, r.restock_date, r.is_synthetic
+                                 FROM returns r JOIN products p ON p.sku=r.sku"""), db.bind)
+        df["days_to_resale"] = (pd.to_datetime(df.restock_date) - pd.to_datetime(df.request_date)).dt.days
     elif dataset == "forecast":
         fc = latest_forecast(db) or {"clusters": []}
         df = pd.DataFrame([dict(cluster_id=c["cluster_id"], city=c["city"], **p) for c in fc["clusters"] for p in c["forecast"]])
     elif dataset == "vendor_kpis":
         from ..services.intelligence import vendor_rankings
         df = pd.DataFrame(vendor_rankings(db, D))
+    elif dataset == "corrective_actions":
+        df = pd.read_sql(text("""SELECT id action_id, kind, entity_type, entity_id, title, status, applied, impact_inr, cost_inr,
+                                        approver_role, created_at, updated_at FROM recommendations
+                                 WHERE kind IN ('vendor_qc_hold','pre_dispatch_qc','size_chart_update','listing_fix','exchange_first')"""), db.bind)
+        df["completed"] = (df.status == "approved") & df.applied.astype(bool)
+    elif dataset == "pickup_performance":
+        df = pd.read_sql(text("""SELECT r.cluster_id, r.pickup_date day, r.provider_id, COUNT(*) pickups,
+                                        AVG(CASE WHEN r.pickup_sla_met THEN 1.0 ELSE 0.0 END) sla_met_rate, AVG(r.pickup_cost) avg_pickup_cost,
+                                        SUM(r.pickup_cost) pickup_cost FROM returns r WHERE r.pickup_date IS NOT NULL
+                                 GROUP BY r.cluster_id, r.pickup_date, r.provider_id"""), db.bind)
+    elif dataset == "warehouse_daily":
+        df = pd.read_sql(text("""SELECT d.facility_id, f.name facility, f.city, d.day, d.inbound, d.processed, d.backlog, d.utilisation,
+                                        f.inspection_capacity, f.handling_cost FROM facility_daily d JOIN facilities f ON f.id=d.facility_id"""), db.bind)
     else:
         cfg = dict(resale.DEFAULTS, **(st.get(db, "resale", {}) or {}))
         resale.build_demand_index(db, D)

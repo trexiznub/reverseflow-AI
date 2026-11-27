@@ -111,7 +111,7 @@ export default function Settings() {
       </Card>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>
-          <CardHead label="Shared state" title="Approved routing and capacity changes" sub="Written when someone approves a suggestion; read by agents, the partner app and the planner" />
+          <CardHead label="Shared state" title="Approved routing and capacity changes" sub="Written when someone approves a suggestion; read by agents and the partner app" />
           <JsonBlock value={{ routing_overrides: s.data.routing_overrides || {}, capacity_overrides: s.data.capacity_overrides || {} }} max={220} />
         </Card>
         <Card>

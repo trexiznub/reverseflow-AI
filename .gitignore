@@ -22,3 +22,7 @@ frontend/out/
 mta_archives/
 .mta/
 approuter/node_modules/
+
+# SAP CAP business service
+sap-business-service/node_modules/
+mta_archives/

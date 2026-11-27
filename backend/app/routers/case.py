@@ -1,5 +1,5 @@
 """The business case: the problem in numbers, from published market figures and
-from the live demo (forecast, agents, planner)."""
+from the live demo (forecast, agents, reverse-logistics simulation)."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -60,8 +60,8 @@ ASSUMPTIONS = [
 
 
 @lru_cache(maxsize=1)
-def _planner() -> dict:
-    """Do nothing vs the combined plan, from the planner's standard scenario."""
+def _simulation() -> dict:
+    """Do nothing vs the combined plan, from the reverse-logistics simulation (Digital Twin engine)."""
     r = twin.run({"replications": 20}, ["baseline", "C"])
     out = {}
     for k, sc in r["scenarios"].items():
@@ -71,7 +71,7 @@ def _planner() -> dict:
                   "total_returns": round(kp["total_returns"]["mean"])}
     b, c = out["baseline"], out["C"]
     out["reduction"] = round(1 - c["value_lost"] / b["value_lost"], 3) if b["value_lost"] else 0
-    out["scenario"] = "Standard planner scenario: Pune, Ahmedabad and Jaipur, 14 days, 20 runs. Illustrative assumptions."
+    out["scenario"] = "Standard simulation: Pune, Ahmedabad and Jaipur, 14 days, 20 runs. Illustrative assumptions."
     return out
 
 
@@ -111,7 +111,7 @@ def case(db: Session = Depends(get_db), _: m.User = Depends(require("internal"))
                        "others_share": finding.get("network_share"), "status": qc.status if qc else None},
             "reroute": {"from": reroute.evidence.get("cluster_id") if reroute else None, "to": alloc.get("facility_id"), "share": alloc.get("share"),
                         "status": reroute.status if reroute else None},
-            "planner": _planner(),
+            "simulation": _simulation(),
             "integrity_checks": integrity, "decisions_waiting": waiting, "avoidable_share": round(avoidable, 3),
             "sap_messages": outbox.summary(db),
         },

@@ -10,7 +10,7 @@ import { post, useApi } from "@/lib/api";
 import { AGENT_LABEL, AGENT_NO, day, dayTime, inr, KIND_LABEL, mult, num, pct } from "@/lib/format";
 
 const AGENT_HREF: Record<string, string> = {
-  prediction: "/forecasting", intelligence: "/root-cause", prevention: "/governance", logistics: "/twin", recovery: "/recovery", governance: "/governance",
+  prediction: "/forecasting", intelligence: "/root-cause", prevention: "/governance", logistics: "/governance", recovery: "/recovery", governance: "/governance",
 };
 
 function Timeline({ items }: { items: any[] }) {
@@ -161,7 +161,7 @@ export default function Overview() {
         </Card>
         <Card className="xl:col-span-2">
           <CardHead label="Can we cope?" title="Pickup vans at the busiest days" sub="How many returns each city needs to collect per day, against what its vans can carry."
-            right={<Link href="/twin" className="text-xs font-medium text-blue-600">Try a plan</Link>} />
+            right={<Link href="/governance" className="text-xs font-medium text-blue-600">Van decisions</Link>} />
           <div className="space-y-5">
             {[...gaps].sort((x: any, y: any) => (y.planning_volume - y.pickup_capacity) - (x.planning_volume - x.pickup_capacity)).slice(0, 4).map((g: any) => {
               const over = g.planning_volume - g.pickup_capacity;
@@ -183,7 +183,7 @@ export default function Overview() {
                 </div>
               );
             })}
-            {gaps.length > 4 && <div className="text-[12px] text-ink-500">{gaps.length - 4} more cities are tight too. <Link href="/twin" className="text-blue-600">Plan for them</Link></div>}
+            {gaps.length > 4 && <div className="text-[12px] text-ink-500">{gaps.length - 4} more cities are tight too. <Link href="/governance" className="text-blue-600">See the suggested vans</Link></div>}
           </div>
         </Card>
       </div>

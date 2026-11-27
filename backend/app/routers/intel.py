@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import llm
 from .. import models as m
 from ..db import get_db
 from ..ml import nlp
@@ -68,3 +69,34 @@ def classify(body: dict, db: Session = Depends(get_db), _: m.User = Depends(requ
     proba = nlp._reason_model.predict_proba([text])[0]
     return {"reason": label, "label": REASONS[label], "confidence": round(conf, 3), "sentiment": s,
             "distribution": sorted([{"reason": c, "p": round(float(p), 3)} for c, p in zip(nlp._reason_model.classes_, proba)], key=lambda x: -x["p"])[:5]}
+
+
+# ---------------- plain-English summaries (Generative AI Hub or template) ----------------
+# The facts are computed here, deterministically; the language model only words
+# them. The facts are returned with the text so anyone can check it.
+@router.get("/ai/summary/{topic}")
+def ai_summary(topic: str, sku: str | None = None, window: int = 90, db: Session = Depends(get_db),
+               _: m.User = Depends(require("internal"))):
+    provider = (st.get(db, "llm", {}) or {}).get("provider", "template")
+    if topic == "return_comments":
+        p = db.get(m.Product, sku or "")
+        if not p:
+            raise HTTPException(404, "SKU not found")
+        df = intel.returns_frame(db, st.scenario_date(db), window)
+        g = df[df.sku == sku]
+        if not len(g):
+            raise HTTPException(404, "No returns for this SKU in the window")
+        vc = g.reason.value_counts(normalize=True)
+        second = f", then {REASONS[vc.index[1]].lower()} ({vc.iloc[1]:.0%})" if len(vc) > 1 else ""
+        facts = dict(n=int(len(g)), product=p.name, sku=sku, window=window, top_label=REASONS[vc.index[0]].lower(),
+                     top_share=float(vc.iloc[0]), second=second)
+    elif topic == "compliance_summary":
+        rows = dict(db.execute(select(m.DecisionLog.action, func.count()).group_by(m.DecisionLog.action)).all())
+        status = dict(db.execute(select(m.Recommendation.status, func.count()).group_by(m.Recommendation.status)).all())
+        facts = dict(total=sum(rows.values()), approved=rows.get("approve", 0) + rows.get("auto_approve", 0), auto=rows.get("auto_approve", 0),
+                     rejected=rows.get("reject", 0), escalated=rows.get("escalate", 0), pending=status.get("pending", 0) + status.get("escalated", 0),
+                     audit=db.scalar(select(func.count(m.AuditLog.id))) or 0)
+    else:
+        raise HTTPException(404, "topic must be return_comments or compliance_summary")
+    text_, source = llm.explain(topic, facts, provider)
+    return {"topic": topic, "text": text_, "source": source, "facts": facts}

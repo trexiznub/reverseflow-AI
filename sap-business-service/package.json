@@ -1,0 +1,86 @@
+{
+  "name": "reverseflow-business-service",
+  "version": "1.0.0",
+  "description": "ReverseFlow business service on SAP CAP: OData access to orders, returns, sellers, stock, corrective actions and approvals. AI work stays in the FastAPI backend.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@sap/cds": "10.2.2",
+    "@cap-js/hana": "3.2.0",
+    "express": "4.21.2",
+    "@sap/xssec": "4.16.0"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "3.1.3"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "watch": "cds-serve --profile development",
+    "test": "node --test test/smoke.test.js"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "sqlite",
+        "credentials": {
+          "url": "../backend/data/reverseflow.db"
+        }
+      },
+      "auth": {
+        "kind": "mocked",
+        "users": {
+          "rahul": {
+            "password": "rahul",
+            "roles": [
+              "OpsManager",
+              "Admin"
+            ],
+            "attr": {
+              "rfUserId": "U-RAHUL"
+            }
+          },
+          "kavya": {
+            "password": "kavya",
+            "roles": [
+              "VendorQuality"
+            ],
+            "attr": {
+              "rfUserId": "U-KAVYA"
+            }
+          },
+          "neha": {
+            "password": "neha",
+            "roles": [
+              "WarehouseManager"
+            ],
+            "attr": {
+              "rfUserId": "U-NEHA"
+            }
+          },
+          "seller": {
+            "password": "seller",
+            "roles": [
+              "Vendor"
+            ],
+            "attr": {
+              "rfUserId": "U-VEN-V03",
+              "scope_id": "V03"
+            }
+          },
+          "*": false
+        }
+      },
+      "[production]": {
+        "db": "hana",
+        "auth": "xsuaa"
+      },
+      "queue": false
+    },
+    "features": {
+      "runtime_views": true
+    }
+  }
+}

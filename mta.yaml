@@ -10,6 +10,7 @@ description: ReverseFlow returns control tower on SAP BTP, Cloud Foundry runtime
 #
 # What gets created:
 #   reverseflow-srv        Python backend (FastAPI, agents, models)
+#   reverseflow-cap        SAP CAP business service (OData V4), needs HANA Cloud
 #   reverseflow-web        Next.js website
 #   reverseflow            SAP application router: SAP sign-in in front of both
 #   reverseflow-uaa        XSUAA sign-in and roles (xs-security.json)
@@ -33,6 +34,9 @@ modules:
       command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
       health-check-type: http
       health-check-http-endpoint: /api/health
+    properties:
+      REVERSEFLOW_ENV: production          # refuses the demo X-User-Id header
+      CAP_URL: https://${org}-${space}-reverseflow-cap.${default-domain}
     requires:
       - name: reverseflow-uaa
       - name: reverseflow-destination
@@ -42,6 +46,33 @@ modules:
       - name: srv-api
         properties:
           srv-url: ${default-url}
+
+  # SAP CAP business service: OData V4 over the same HANA Cloud tables, with
+  # XSUAA roles. Needs reverseflow-hana (set active: true below) because CAP
+  # does not run on SQLite in production.
+  - name: reverseflow-cap
+    type: nodejs
+    path: sap-business-service
+    build-parameters:
+      ignore: ["node_modules/", "test/"]
+    parameters:
+      host: ${org}-${space}-reverseflow-cap
+      memory: 256M
+      disk-quota: 512M
+      health-check-type: http
+      health-check-http-endpoint: /health
+    properties:
+      NODE_ENV: production
+    requires:
+      - name: reverseflow-uaa
+      - name: reverseflow-hana
+      - name: srv-api
+        properties:
+          REVERSEFLOW_API_URL: ~{srv-url}
+    provides:
+      - name: cap-api
+        properties:
+          cap-url: ${default-url}
 
   - name: reverseflow-web
     type: nodejs
@@ -80,6 +111,12 @@ modules:
           url: ~{srv-url}
           forwardAuthToken: true
           timeout: 120000
+      - name: cap-api
+        group: destinations
+        properties:
+          name: cap-api
+          url: ~{cap-url}
+          forwardAuthToken: true
       - name: web-app
         group: destinations
         properties:

@@ -7,9 +7,14 @@ Two sign-in modes:
 * SAP BTP XSUAA: switches on when an XSUAA service is bound to the app on
   Cloud Foundry (or REVERSEFLOW_AUTH=xsuaa with XSUAA_* variables). Every API
   call then needs a valid XSUAA token, normally added by the SAP application
-  router after the person signs in with SAP ID / IAS. The token's scopes decide
-  the role (see xs-security.json). Operations managers may still switch
-  persona to present the demo; everyone else is fixed to their own role.
+  router (or forwarded by the CAP service) after the person signs in with SAP
+  ID / IAS. The token's scopes decide the role (see xs-security.json). The
+  X-User-Id header is ignored, except for holders of the Admin scope when
+  REVERSEFLOW_DEMO_SWITCH=1 (to present the demo personas).
+
+Production safety: on Cloud Foundry, or with REVERSEFLOW_ENV=production, the
+demo header is refused. Without XSUAA every call then gets 401, unless
+REVERSEFLOW_ALLOW_DEMO_AUTH=1 is set deliberately (public demo only).
 
 The role and scope model is the same in both modes.
 """
@@ -31,9 +36,9 @@ PARTNER = {"vendor", "logistics", "warehouse"}
 
 # Navigation each role may open (frontend uses this, backend enforces per endpoint)
 PAGES = {
-    "ops_manager": ["overview", "case", "customer", "partners", "agents", "forecasting", "twin", "root-cause", "recovery", "governance", "analytics", "sap", "settings"],
+    "ops_manager": ["overview", "case", "customer", "partners", "agents", "forecasting", "root-cause", "recovery", "governance", "analytics", "sap", "settings"],
     "vendor_quality_manager": ["overview", "case", "agents", "forecasting", "root-cause", "governance", "analytics", "sap", "settings"],
-    "warehouse_manager": ["overview", "case", "partners", "agents", "twin", "recovery", "governance", "analytics", "sap", "settings"],
+    "warehouse_manager": ["overview", "case", "partners", "agents", "recovery", "governance", "analytics", "sap", "settings"],
     "dispute_reviewer": ["overview", "case", "governance", "settings"],
     "vendor": ["partners", "settings"],
     "logistics": ["partners", "settings"],
@@ -42,7 +47,7 @@ PAGES = {
 }
 
 # XSUAA scope (without the "<xsappname>." prefix) -> role, strongest first
-SCOPE_ROLE = [("OpsManager", "ops_manager"), ("VendorQuality", "vendor_quality_manager"), ("WarehouseManager", "warehouse_manager"),
+SCOPE_ROLE = [("Admin", "ops_manager"), ("OpsManager", "ops_manager"), ("VendorQuality", "vendor_quality_manager"), ("WarehouseManager", "warehouse_manager"),
               ("DisputeReviewer", "dispute_reviewer"), ("Vendor", "vendor"), ("Logistics", "logistics"),
               ("WarehousePartner", "warehouse"), ("Customer", "customer")]
 
@@ -59,6 +64,14 @@ def _xsuaa_creds() -> dict | None:
 
 def auth_mode() -> str:
     return "xsuaa" if _xsuaa_creds() else "demo"
+
+
+def production() -> bool:
+    return btp.on_cloud_foundry() or os.getenv("REVERSEFLOW_ENV", "").lower() == "production"
+
+
+def demo_header_allowed() -> bool:
+    return not production() or os.getenv("REVERSEFLOW_ALLOW_DEMO_AUTH") == "1"
 
 
 _jwks = {}
@@ -103,15 +116,21 @@ def current_user(x_user_id: str | None = Header(default=None), authorization: st
         except Exception:
             raise HTTPException(401, "Your SAP sign-in has expired or is not valid. Sign in again.")
         u = _user_for_claims(db, claims)
-        if u.role == "ops_manager" and x_user_id and x_user_id != u.id:
-            other = db.get(m.User, x_user_id)  # presenter switching persona for the demo
+        is_admin = "Admin" in claims["_scopes"]
+        if is_admin and x_user_id and x_user_id != u.id and os.getenv("REVERSEFLOW_DEMO_SWITCH") == "1":
+            other = db.get(m.User, x_user_id)  # an administrator presenting the demo personas
             if other:
+                other.is_admin = False
                 return other
+        u.is_admin = is_admin
         return u
+    if not demo_header_allowed():
+        raise HTTPException(401, "Sign-in is required. Bind SAP XSUAA to this app; the demo person switcher is off in production.")
     uid = x_user_id or "U-RAHUL"
     u = db.get(m.User, uid)
     if not u:
         raise HTTPException(401, f"Unknown user {uid}")
+    u.is_admin = u.role == "ops_manager"  # demo: the operations manager administers the demo
     return u
 
 
@@ -125,3 +144,10 @@ def require(*roles: str):
             raise HTTPException(403, f"Role '{user.role}' cannot access this resource")
         return user
     return dep
+
+
+def require_admin(user: m.User = Depends(current_user)) -> m.User:
+    """Administration: connection tests, demo reset. XSUAA: the Admin scope. Demo: the operations manager."""
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403, "Only an administrator can do this")
+    return user

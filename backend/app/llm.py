@@ -46,6 +46,11 @@ class TemplateProvider:
             "restock": "{n} festive items that are probably like new are worth about ₹{value:,.0f}, and lose about ₹{decay:,.0f} a day while they wait. "
                        "They move to the front of the inspection queue so they are back on sale within 3 days.",
             "customer_return": "{status_text} for your {product}. {next_step}",
+            "return_comments": "{n} returns of {product} ({sku}) in the last {window} days. The most common reason is {top_label} "
+                               "({top_share:.0%} of returns){second}. The reasons are read from customers' own words by the text model.",
+            "compliance_summary": "{total} decisions are on record. {approved} approved, of which {auto} were inside pre-authorised limits; "
+                                  "{rejected} declined and {escalated} escalated. {pending} wait for a named person. "
+                                  "Every decision has a recorded approver and reason, and {audit} actions are in the audit log.",
         }.get(kind)
         if not t:
             return json.dumps(f)[:400]

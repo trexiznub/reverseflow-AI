@@ -54,7 +54,7 @@ export default function Analytics() {
       <Card>
         <CardHead label="Downloads" title="Take the data with you" sub="Spreadsheet files (CSV) you can open in Excel, or load into SAP Analytics Cloud." />
         <div className="flex flex-wrap gap-2">
-          {[["returns_fact", "All returns"], ["forecast", "Forecast"], ["vendor_kpis", "Seller scorecard"], ["recovery_queue", "Resale list"]].map(([d, l]) => (
+          {[["returns_fact", "All returns"], ["forecast", "Forecast"], ["vendor_kpis", "Seller scorecard"], ["corrective_actions", "Seller fixes"], ["pickup_performance", "Pickups"], ["warehouse_daily", "Warehouse load"], ["recovery_queue", "Resale list"]].map(([d, l]) => (
             <button key={d} onClick={() => download(d)} className="flex items-center gap-2 rounded border border-line-strong px-3.5 py-2 text-[13px] hover:border-ink-500"><Download className="h-3.5 w-3.5" />{l}</button>
           ))}
         </div>

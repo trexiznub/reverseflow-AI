@@ -9,7 +9,7 @@ import { inr, mult, num, pct } from "@/lib/format";
 const OBJECTIVES = [
   { t: "Forecast the wave", d: "Predict returns for each city about a week ahead.", href: "/forecasting", page: "Forecast" },
   { t: "Find the cause", d: "Spot sellers, products and sizes that cause avoidable returns.", href: "/root-cause", page: "Product issues" },
-  { t: "Plan capacity early", d: "Vans, warehouse routing and inspection shifts, before the peak.", href: "/twin", page: "Planner" },
+  { t: "Plan capacity early", d: "Vans, warehouse routing and inspection shifts, before the peak.", href: "/governance", page: "Decisions" },
   { t: "Recover more value", d: "Inspect and resell the most valuable items first.", href: "/recovery", page: "Resale" },
   { t: "Keep people in charge", d: "Anything that costs money or affects a seller or customer needs a named person's approval.", href: "/governance", page: "Decisions" },
   { t: "Work inside SAP", d: "Hand each approved decision to the SAP system that carries it out.", href: "/sap", page: "SAP" },
@@ -81,7 +81,7 @@ export default function CasePage() {
     const returned = fashion * v.return_rate;
     const handling = returned * v.reverse_cost_pct;
     const waiting = returned * v.value_lost_pct;
-    const timingSaving = waiting * d.planner.reduction;
+    const timingSaving = waiting * d.simulation.reduction;
     const prevented = returned * d.avoidable_share * v.prevented_share;
     const preventionSaving = prevented * (v.reverse_cost_pct + v.value_lost_pct);
     return { fashion, returned, handling, waiting, timingSaving, prevented, preventionSaving, total: timingSaving + preventionSaving };
@@ -91,7 +91,7 @@ export default function CasePage() {
   if (!c.data || !model) return <Loading />;
   const S = c.data.sources;
   const fact = (id: string) => c.data.facts.find((f: any) => f.id === id);
-  const p = d.planner;
+  const p = d.simulation;
   const surge = d.surge as any[];
   const avgPeak = surge.length ? surge.reduce((a, x) => a + x.peak_multiplier, 0) / surge.length : null;
   const cr = (x: number) => `₹${num(Math.round(x))} cr`;
@@ -189,7 +189,7 @@ export default function CasePage() {
             <ol className="space-y-3 text-[13.5px] leading-relaxed text-ink-700">
               <li><b className="text-ink-900">Five days early:</b> the forecast flags {surge.map((s) => s.city).join(", ")} at about <b className="num text-ink-900">{mult(avgPeak)}</b> normal returns at the peak. <Link href="/forecasting" className="text-blue-600">Forecast</Link></li>
               <li><b className="text-ink-900">The cause:</b> <b className="num text-ink-900">{pct(d.seller.share)}</b> of returns from {d.seller.name} are for "{d.seller.reason?.toLowerCase()}", against <b className="num text-ink-900">{pct(d.seller.others_share, 1)}</b> for other sellers. A quality check is suggested and sent to the quality manager. <Link href="/root-cause" className="text-blue-600">Product issues</Link></li>
-              <li><b className="text-ink-900">The plan:</b> doing nothing loses about <b className="num text-ink-900">{inr(p.baseline.value_lost, true)}</b> of resale value over 14 days. Extra vans, sending <b className="num text-ink-900">{pct(d.reroute.share)}</b> of Pune's returns to Nashik, an extra shift and checking valuable items first cut that to <b className="num text-ink-900">{inr(p.C.value_lost, true)}</b>. <Link href="/twin" className="text-blue-600">Planner</Link></li>
+              <li><b className="text-ink-900">The plan:</b> doing nothing loses about <b className="num text-ink-900">{inr(p.baseline.value_lost, true)}</b> of resale value over 14 days. Extra vans, sending <b className="num text-ink-900">{pct(d.reroute.share)}</b> of Pune's returns to Nashik, an extra shift and checking valuable items first cut that to <b className="num text-ink-900">{inr(p.C.value_lost, true)}</b>.</li>
               <li><b className="text-ink-900">The approval:</b> a named manager approves each change with a reason. <b className="num text-ink-900">{num(d.decisions_waiting)}</b> decisions are waiting for people right now. <Link href="/governance" className="text-blue-600">Decisions</Link></li>
               <li><b className="text-ink-900">The safety check:</b> <b className="num text-ink-900">{num(d.integrity_checks)}</b> returns get a closer look at the warehouse. No refund is blocked automatically.</li>
               <li><b className="text-ink-900">Into SAP:</b> approved van bookings go to SAP TM, the seller's quality notice to Ariba, and the forecast to IBP. <Link href="/sap" className="text-blue-600">SAP</Link></li>
@@ -197,7 +197,7 @@ export default function CasePage() {
           </Card>
         </div>
         <BigStats items={[
-          { label: "Value lost, doing nothing", value: inr(p.baseline.value_lost, true), sub: "Planner, 14 days, three cities", tone: "bad" },
+          { label: "Value lost, doing nothing", value: inr(p.baseline.value_lost, true), sub: "Simulation, 14 days, three cities", tone: "bad" },
           { label: "Value lost, combined plan", value: inr(p.C.value_lost, true), sub: `${pct(p.reduction)} less`, tone: "ok" },
           { label: "Picked up on time", value: `${pct(p.baseline.pickup_on_time)} → ${pct(p.C.pickup_on_time)}`, sub: "Within 2 days" },
           { label: "Days to resale", value: `${num(p.baseline.days_to_resale, 1)} → ${num(p.C.days_to_resale, 1)}`, sub: "From pickup to back on sale" },
@@ -207,7 +207,7 @@ export default function CasePage() {
 
       {/* 5 */}
       <Num n="05">
-        <H sub="A rough model of the whole Indian market, built from published figures. Move the sliders to test the assumptions; the savings use the planner result and the avoidable share from the demo.">
+        <H sub="A rough model of the whole Indian market, built from published figures. Move the sliders to test the assumptions; the savings use the simulation result and the avoidable share from the demo.">
           The economics
         </H>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
@@ -227,7 +227,7 @@ export default function CasePage() {
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                 <div>
                   <div className="display-num text-[36px]">{cr(model.timingSaving)}</div>
-                  <div className="mt-2 text-[12.5px] leading-relaxed text-ink-500">Less value lost to waiting: the planner's {pct(p.reduction)} reduction applied to {cr(model.waiting)}.</div>
+                  <div className="mt-2 text-[12.5px] leading-relaxed text-ink-500">Less value lost to waiting: the simulation's {pct(p.reduction)} reduction applied to {cr(model.waiting)}.</div>
                 </div>
                 <div>
                   <div className="display-num text-[36px]">{cr(model.preventionSaving)}</div>
@@ -267,7 +267,7 @@ export default function CasePage() {
           <div className="rounded border border-line bg-black p-4 font-mono text-[11.5px] leading-relaxed text-ink-500">
             returned = sales × fashion share × return rate<br />
             handling = returned × handling cost share · lost to waiting = returned × value lost share<br />
-            timing saving = lost to waiting × planner reduction ({pct(p.reduction)})<br />
+            timing saving = lost to waiting × simulated reduction ({pct(p.reduction)})<br />
             prevention saving = returned × avoidable share ({pct(d.avoidable_share)}, demo data) × prevented share × (handling share + value lost share)
           </div>
         </More>

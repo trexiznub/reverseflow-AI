@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -10,62 +8,14 @@ from sqlalchemy.orm import Session
 
 from .. import models as m
 from .. import orchestrator
-from ..agents.prediction import latest_forecast
 from ..agents.recovery import recovery_queue
 from ..db import get_db
 from ..ml import anomaly, resale
 from ..rbac import current_user, require
 from ..services import actions
 from ..services import settings as st
-from ..simulation import twin
 
 router = APIRouter()
-
-
-# ---------------- Digital Twin ----------------
-@router.get("/twin/defaults")
-def twin_defaults(source: str = "deck", db: Session = Depends(get_db), _: m.User = Depends(require("internal"))):
-    p = deepcopy(twin.DEFAULTS)
-    note = "Default illustrative scenario from the presentation (Pune +1,200/day, Ahmedabad +800/day, Jaipur +600/day)."
-    if source == "forecast":
-        fc = latest_forecast(db)
-        if not fc:
-            raise HTTPException(503, "No forecast available")
-        D = st.scenario_date(db)
-        by = {c["cluster_id"]: c for c in fc["clusters"]}
-        co = st.capacity_overrides(db)
-        for c in p["clusters"]:
-            f = by[c["id"]]
-            c["base"] = f["network_normal_daily"]
-            c["additional"] = max(0, f["additional_network_at_peak"])
-            c["vehicles"] += co.get(f"vehicles:{c['id']}", 0)
-        peaks = [(date.fromisoformat(by[c["id"]]["peak_day"]) - D).days for c in p["clusters"] if by[c["id"]]["peak_day"]]
-        if peaks:
-            p["peak_day"] = int(round(sum(peaks) / len(peaks)))
-        ro = st.routing_overrides(db)
-        for cid, alloc in ro.items():
-            if cid in p["allocation"]:
-                p["allocation"][cid] = alloc
-        note = "Loaded from the Return Prediction Agent's latest forecast (network-scale peak volumes) and approved capacity / routing changes."
-    return {"params": p, "scenarios": twin.SCENARIOS, "note": note}
-
-
-class TwinIn(BaseModel):
-    params: dict = {}
-    scenarios: list[str] | None = None
-
-
-@router.post("/twin/simulate")
-def twin_simulate(body: TwinIn, _: m.User = Depends(require("internal"))):
-    p = body.params or {}
-    if p.get("replications", 40) > 200 or p.get("days", 14) > 45:
-        raise HTTPException(400, "replications <= 200 and days <= 45")
-    if p.get("processing_minutes", 12) <= 0:
-        raise HTTPException(400, "processing_minutes must be positive")
-    try:
-        return twin.run(p, body.scenarios)
-    except (KeyError, TypeError, ValueError) as e:
-        raise HTTPException(400, f"invalid parameters: {e}")
 
 
 # ---------------- Inventory recovery ----------------
