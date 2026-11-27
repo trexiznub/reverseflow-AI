@@ -5,7 +5,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useState 
 import { api } from "@/lib/api";
 import { getUserId, setUserId } from "@/lib/session";
 
-type Meta = { scenario_date: string; disclaimer: string; user: any; pages: string[]; status: any };
+type Meta = { scenario_date: string; disclaimer: string; user: any; pages: string[]; status: any; auth_mode?: string; last_run_at?: string | null };
 type Ctx = { meta: Meta | null; users: any[]; switchUser: (id: string) => void; refreshMeta: () => void; metaError: any; detail: boolean; setDetail: (v: boolean) => void };
 const UserCtx = createContext<Ctx>({ meta: null, users: [], switchUser: () => {}, refreshMeta: () => {}, metaError: null, detail: false, setDetail: () => {} });
 export const useSession = () => useContext(UserCtx);

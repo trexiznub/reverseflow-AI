@@ -18,6 +18,10 @@ from ..simulation import twin
 router = APIRouter()
 
 SOURCES = {
+    "moneycontrol26": {"label": "Moneycontrol, citing Datum Intelligence: festive online sales rise 17% to ₹1.41 lakh crore (2026)",
+                       "url": "https://www.moneycontrol.com/news/business/startup/festive-online-sales-rise-17-to-rs-1-41-lakh-crore-slowest-growth-since-2023-14077755.html"},
+    "ibef26": {"label": "IBEF, citing Redseer: 2026 festive season forecast ₹1.40–1.49 lakh crore",
+               "url": "https://www.ibef.org/news/india-s-online-retail-to-cross-us-90-billion-in-2026-redseer"},
     "redseer": {"label": "Redseer festive season forecast, via Business Standard (Aug 2025)",
                 "url": "https://www.business-standard.com/industry/news/india-festive-season-ecommerce-sale-redseer-report-125082700476_1.html"},
     "ibef": {"label": "IBEF: festive e-commerce GMV to cross ₹1,15,000 crore",
@@ -38,9 +42,11 @@ SOURCES = {
 
 # Published figures behind the market model. "kind" says how sure we are.
 FACTS = [
-    {"id": "festive_gmv", "label": "Festive season online sales in India (2025 forecast)", "value": "₹1,15,000 crore (about US$13 billion), up 20–25%", "sources": ["redseer", "ibef"], "kind": "published"},
-    {"id": "first_days", "label": "Sales in the first 11 days, against normal days", "value": "about 3.5×", "sources": ["redseer11"], "kind": "published"},
-    {"id": "fashion_share", "label": "Fashion's share of festive sales", "value": "about one fifth", "sources": ["redseer", "ibef"], "kind": "published"},
+    {"id": "festive_gmv", "label": "Festive season online sales in India, 2026", "value": "about ₹1,41,000 crore, up 17% on 2025", "sources": ["moneycontrol26"], "kind": "published"},
+    {"id": "festive_gmv_forecast", "label": "2026 pre-season forecast (Redseer)", "value": "₹1,40,000–1,49,000 crore (US$15–16 billion), about 25% growth", "sources": ["ibef26"], "kind": "published forecast"},
+    {"id": "festive_gmv_2025", "label": "Festive season online sales, 2025 (forecast)", "value": "₹1,15,000 crore, up 20–25%", "sources": ["redseer", "ibef"], "kind": "published"},
+    {"id": "first_days", "label": "Sales in the first 11 days of 2025, against normal days", "value": "about 3.5×", "sources": ["redseer11"], "kind": "published"},
+    {"id": "fashion_share", "label": "Fashion's share of festive sales (2025)", "value": "about one fifth", "sources": ["redseer", "ibef"], "kind": "published"},
     {"id": "all_returns", "label": "Return rate, all Indian e-commerce (2024)", "value": "7.8% of orders", "sources": ["clickpost_rate"], "kind": "published"},
     {"id": "fashion_returns", "label": "Customer return rate, online fashion in India", "value": "17–25% of orders", "sources": ["clickpost_fashion", "dfu"], "kind": "published"},
     {"id": "with_rto", "label": "Including cash-on-delivery orders refused at the door", "value": "25–40% of orders", "sources": ["clickpost_fashion", "row"], "kind": "industry estimate"},
@@ -50,8 +56,8 @@ FACTS = [
 
 # Starting values for the calculator on the case page (all editable there).
 ASSUMPTIONS = [
-    {"id": "festive_gmv_cr", "label": "Festive online sales (₹ crore)", "value": 115000, "min": 50000, "max": 200000, "step": 5000, "sources": ["redseer"], "kind": "published"},
-    {"id": "fashion_share", "label": "Fashion's share of sales", "value": 0.20, "min": 0.10, "max": 0.35, "step": 0.01, "sources": ["redseer"], "kind": "published", "unit": "pct"},
+    {"id": "festive_gmv_cr", "label": "Festive online sales, 2026 (₹ crore)", "value": 141000, "min": 50000, "max": 200000, "step": 1000, "sources": ["moneycontrol26"], "kind": "published"},
+    {"id": "fashion_share", "label": "Fashion's share of sales (2025 figure)", "value": 0.20, "min": 0.10, "max": 0.35, "step": 0.01, "sources": ["redseer"], "kind": "published", "unit": "pct"},
     {"id": "return_rate", "label": "Share of fashion orders returned", "value": 0.20, "min": 0.10, "max": 0.40, "step": 0.01, "sources": ["clickpost_fashion"], "kind": "published range 17–25%", "unit": "pct"},
     {"id": "reverse_cost_pct", "label": "Cost of handling a return (share of its price)", "value": 0.06, "min": 0.03, "max": 0.15, "step": 0.005, "sources": ["clickpost_fashion", "base"], "kind": "industry estimate 5–7%", "unit": "pct"},
     {"id": "value_lost_pct", "label": "Resale value lost while returns wait", "value": 0.05, "min": 0.0, "max": 0.20, "step": 0.005, "sources": [], "kind": "our assumption", "unit": "pct"},

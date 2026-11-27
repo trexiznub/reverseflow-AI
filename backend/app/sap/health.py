@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import threading
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -131,7 +132,10 @@ def _t_s4(db):
     if code == 200 and isinstance(body, dict) and "__sandbox" in body:
         return _result("configured", "SAP_S4_URL points at ReverseFlow's own test sandbox, not an S/4HANA system. The adapter works; S/4HANA is not connected.")
     if code == 200 and isinstance(body, dict) and "d" in body:
-        return _result("connected", f"Product API answered through {conn.source}.")
+        n = len((body.get("d") or {}).get("results", []))
+        return _result("connected", f"Product API answered through {conn.source} and returned readable OData ({n} record).")
+    if code == 200:
+        return _result("failed", "S/4HANA answered, but not with readable OData JSON. Check SAP_S4_URL points at the host part only.")
     return _result(_http_state(code), f"S/4HANA answered {code} for {s4hana.path('products')}.")
 
 
@@ -145,6 +149,30 @@ def _t_sac(db):
         n = len(body.get("models", [])) if isinstance(body, dict) else None
         return _result("connected", f"SAP Analytics Cloud data import API reached{f': {n} models' if n is not None else ''}.")
     return _result(_http_state(code), f"SAP Analytics Cloud answered {code}.")
+
+
+def _t_workzone():
+    """Open the Work Zone site URL and check it is a live SAP launchpad site.
+    The tile on the site sits behind SAP sign-in, so it can't be checked from here."""
+    import urllib.parse
+    import urllib.request
+    url = os.getenv("WORKZONE_SITE_URL", "")
+    host = urllib.parse.urlparse(url).hostname or ""
+    if not (host.endswith(".hana.ondemand.com") or host.endswith(".cloud.sap")):
+        return _result("failed", "WORKZONE_SITE_URL is not an SAP BTP address (expected …launchpad.cfapps….hana.ondemand.com).")
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+    try:
+        r = urllib.request.build_opener(NoRedirect).open(urllib.request.Request(url, method="GET"), timeout=10)
+        code, loc = r.status, ""
+    except urllib.error.HTTPError as e:  # a redirect to SAP sign-in arrives here
+        code, loc = e.code, e.headers.get("Location", "")
+    if code == 200 or (code in (301, 302, 303, 307) and ("authentication" in loc or "login" in loc or "oauth" in loc or host in loc)):
+        return _result("connected", f"Work Zone site is live at {host} (answered {code}{', sign-in required' if code != 200 else ''}). "
+                                    "The tile itself sits behind SAP sign-in and is not checked.")
+    return _result("failed", f"Work Zone site answered {code}.")
 
 
 def _t_outbox_system(system):
@@ -169,7 +197,7 @@ TESTS = {
     "btp": _t_btp, "xsuaa": _t_xsuaa, "destination": _t_destination, "hana": _t_hana, "cap": _t_cap,
     "genai": _t_genai, "aicore": _t_aicore, "s4": _t_s4, "sac": _t_sac,
     "launchpad": _untestable("SAP AI Launchpad is a user interface with no API to test. Open it from the link; it manages the same AI Core shown here."),
-    "workzone": _untestable("SAP Build Work Zone has no API the app can test. Open the site link to check the tile."),
+    "workzone": lambda db: _t_workzone(),
     **{s: _t_outbox_system(s) for s in destinations.SYSTEMS},
 }
 

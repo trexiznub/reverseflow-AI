@@ -278,7 +278,7 @@ def test_sap_genai_hub_explanations(monkeypatch):
 def test_analytics_and_exports(client):
     k = client.get("/api/analytics/kpis", headers=OPS).json()["kpis"]
     keys = {x["key"] for x in k}
-    assert {"forecast_accuracy", "cost_per_return", "pickup_sla", "value_at_risk", "sellable_recovery"} <= keys
+    assert {"forecast_error", "cost_per_return", "pickup_sla", "value_at_risk", "sellable_recovery"} <= keys
     csv = client.get("/api/integrations/sac/returns_fact.csv", headers=OPS)
     assert csv.status_code == 200 and csv.text.startswith("return_id")
 
@@ -407,3 +407,88 @@ def test_test_receivers_never_count_as_connected(client, monkeypatch):
 def test_sap_overview_is_public_and_minimal(client):
     r = client.get("/api/sap/overview").json()
     assert r["services"] and set(r["services"][0]) == {"id", "product", "group", "state", "sandbox"}
+
+
+def test_gzip_replies_are_read(monkeypatch):
+    """The Business Accelerator Hub sandbox compresses its replies."""
+    import gzip, io, json, urllib.request
+    from app.sap import btp
+
+    class R(io.BytesIO):
+        status = 200
+        headers = {"Content-Encoding": "gzip"}
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+    body = gzip.compress(json.dumps({"d": {"results": [{"Product": "P1"}]}}).encode())
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=15: R(body))
+    code, data = btp.http_json("GET", "https://s4.test/x")
+    assert code == 200 and data["d"]["results"][0]["Product"] == "P1"
+
+
+def test_each_team_approves_only_its_own_actions(client):
+    items = client.get("/api/approvals", headers=OPS).json()["items"]
+    vq = next(i for i in items if i["approver_role"] == "vendor_quality_manager" and i["status"] == "pending")
+    r = client.post(f"/api/approvals/{vq['id']}/decision", json={"action": "approve", "reason": "test"}, headers=OPS)
+    assert r.status_code == 403 and "Seller Quality Manager" in r.json()["detail"]
+    ex = next(i for i in items if i["kind"] == "exchange_first")
+    assert ex["approver_role"] == "dispute_reviewer"  # customer policy, not operations
+
+
+def test_pre_authorised_is_not_counted_as_human_approval(client):
+    d = client.get("/api/approvals", headers=OPS).json()
+    c = d["counts"]
+    assert c.get("approved", 0) == c["approved_by_person"] + c["pre_authorised"]
+    for i in d["items"]:
+        if i["status"] == "approved" and not i["requires_approval"]:
+            assert i["stages"]["approval"]["state"] == "pre_authorised"
+        if i["status"] == "pending":
+            assert i["stages"]["execution"]["state"] == "not_started"
+        assert i["net_inr"] == round(i["impact_inr"] - i["cost_inr"], 2)
+
+
+def test_van_suggestions_pay_for_themselves(client):
+    vans = [i for i in client.get("/api/approvals", headers=OPS).json()["items"] if i["kind"] == "extra_pickup"]
+    assert vans
+    for v in vans:
+        assert v["impact_inr"] > v["cost_inr"], v["title"]
+        assert v["evidence"]["with_vans"]["waiting_days_avoided"] > 0
+
+
+def test_resale_suggestion_is_inspection_first(client):
+    r = next(i for i in client.get("/api/approvals", headers=OPS).json()["items"] if i["kind"] == "rapid_restock")
+    assert r["title"].startswith("Inspect") and "inspection" in r["evidence"]["condition_basis"]
+
+
+def test_outbox_master_data_dedupe_and_retries(client, monkeypatch):
+    from app import models as m
+    from app.db import SessionLocal
+    from app.sap import outbox
+    with SessionLocal() as db:
+        rec = db.scalars(__import__("sqlalchemy").select(m.Recommendation).where(m.Recommendation.kind == "size_chart_update")).first()
+        bad = m.Recommendation(**{k: getattr(rec, k) for k in ("kind", "title", "rationale", "entity_type", "entity_id", "agent")},
+                               id="RC-TESTBAD", evidence={"skus": ["NO-SUCH-SKU"]}, created_at=rec.created_at, updated_at=rec.updated_at)
+        msgs = outbox.from_recommendation(db, bad, "tester")
+        assert msgs[0].status == "blocked" and "Unknown SKU" in msgs[0].response["validation"][0]
+        again = outbox.from_recommendation(db, bad, "tester")
+        assert again[0].id == msgs[0].id  # no duplicate for the same decision
+        good = outbox.from_recommendation(db, rec, "tester")[0]
+        assert good.status == "waiting"
+        monkeypatch.setenv("SAP_ARIBA_URL", "http://ariba.test")
+        calls = []
+        replies = iter([(503, {"error": "busy"}), (201, {"messageId": "ARIBA-1"})])
+        monkeypatch.setattr(outbox.destinations.btp, "http_json", lambda *a, headers=None, **k: (calls.append(headers), next(replies))[1])
+        outbox.deliver(db, good)
+        assert good.status == "failed" and good.response["retryable"] and not outbox.due(good)  # waits before retrying
+        outbox.deliver(db, good)
+        assert good.status == "sent" and good.response["ack_id"] == "ARIBA-1"
+        assert calls[0]["Idempotency-Key"] == good.id
+        outbox.deliver(db, good)
+        assert len(calls) == 2  # never sent twice
+        db.rollback()
+
+
+def test_workzone_check_requires_an_sap_site(monkeypatch):
+    from app.sap import health
+    monkeypatch.setenv("WORKZONE_SITE_URL", "https://example.com/site")
+    r = health._t_workzone()
+    assert r["state"] == "failed" and "not an SAP BTP address" in r["detail"]

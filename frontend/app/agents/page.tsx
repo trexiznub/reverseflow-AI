@@ -87,12 +87,12 @@ function CommandCentre() {
       topics.set(k, [...(topics.get(k) || []), m.topic]);
     });
     const es: Edge[] = [];
-    Object.keys(AGENT_NO).forEach((a) => es.push({ id: `o-${a}`, source: "orchestrator", target: a, style: { stroke: "#363636" } }));
+    Object.keys(AGENT_NO).forEach((a) => es.push({ id: `o-${a}`, source: "orchestrator", target: a, style: { stroke: "#2A2A2A", strokeDasharray: "3 5" } }));
     topics.forEach((t, k) => {
       const [s, r] = k.split("->");
       if (s === "orchestrator") return;
       const focus = s === sel || r === sel;
-      es.push({ id: k, source: s, target: r, label: focus ? t.map((x) => x.replace(/_/g, " ")).join(", ") : undefined, animated: true,
+      es.push({ id: k, source: s, target: r, label: focus ? t.map((x) => x.replace(/_/g, " ")).join(", ") : `${t.length}`, animated: true,
         style: { stroke: focus ? "#F2F2F2" : "#3A3A3A", strokeWidth: focus ? 1.8 : 1 }, zIndex: focus ? 10 : 0,
         labelStyle: { fontSize: 9.5, fill: "#F2F2F2", fontWeight: 600 }, labelBgStyle: { fill: "#151515" }, labelBgPadding: [3, 1] as any });
     });
@@ -143,6 +143,12 @@ function CommandCentre() {
               onNodeClick={(_, n) => AGENT_NO[n.id] && setSel(n.id)} proOptions={{ hideAttribution: true }} minZoom={0.5} maxZoom={1.5} colorMode="dark">
               <Background gap={22} color="#1C1C1C" />
             </ReactFlow>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line px-4 py-2 text-[11.5px] text-ink-500">
+            <span className="flex items-center gap-1.5"><span className="h-px w-5 border-t border-dashed border-ink-400" />coordinator starts each agent</span>
+            <span className="flex items-center gap-1.5"><span className="h-[2px] w-5 bg-ink-700" />agent passes findings (number = messages)</span>
+            <span className="flex items-center gap-1.5"><span className="h-[2px] w-5 bg-warn-500" />sent to a person to decide</span>
+            <span>Click an agent to name its messages.</span>
           </div>
         </Card>
         <Card pad={false} className="flex flex-col">
@@ -203,14 +209,33 @@ function CommandCentre() {
           </Card>
           <div className="space-y-4">
             <Card>
+              <CardHead label="In order" title="Who told whom what" sub="Every message the agents passed in this run, first to last." />
+              <ol className="max-h-64 space-y-1.5 overflow-y-auto">
+                {(d.messages || []).filter((m: any) => m.sender !== "orchestrator" && m.receiver !== "orchestrator").map((m: any, i: number) => (
+                  <li key={i} className="flex items-baseline gap-2 text-[12px]">
+                    <span className="num w-5 shrink-0 text-right text-ink-400">{i + 1}</span>
+                    <span><b className="font-medium text-ink-900">{AGENT_SHORT[m.sender] || m.sender}</b> → <b className="font-medium text-ink-900">{AGENT_SHORT[m.receiver] || m.receiver}</b>: <span className="text-ink-500">{String(m.topic).replace(/_/g, " ")}</span></span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+            <Card>
               <CardHead label="Disagreements" title={d.conflicts.length ? `${d.conflicts.length} times two agents disagreed` : "No disagreements"} sub="When two suggestions clash, the coordinator settles it, and the hard ones go to a person." />
               {d.conflicts.length === 0 ? <Empty title="Everyone agreed this time" /> : (
                 <div className="space-y-3">
                   {d.conflicts.map((c: any, i: number) => (
-                    <div key={i} className="rounded border border-[#4A3A17] bg-warn-50 p-3">
-                      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-warn-700">{c.agents.map((a: string) => AGENT_SHORT[a]).join(" ↔ ")}</div>
-                      <div className="mt-1 text-[12px] leading-snug">{c.description}</div>
-                      <div className="mt-1.5 text-[11.5px] leading-snug text-ink-700"><span className="font-semibold">Settled by: </span>{c.resolution}</div>
+                    <div key={i} className="overflow-hidden rounded-lg border border-[#4A3A17]">
+                      <div className="bg-warn-50 px-3 py-2">
+                        <div className="label text-warn-700">Disagreement {i + 1} · {c.agents.map((a: string) => AGENT_SHORT[a]).join(" vs ")}</div>
+                        <div className="mt-1 text-[13px] font-semibold leading-snug">{c.title || c.description}</div>
+                      </div>
+                      <div className="space-y-2 px-3 py-2.5 text-[12px] leading-snug">
+                        {c.a_wants && <div className="flex gap-2"><span className="label w-5 shrink-0 text-ink-400">A</span><span>{c.a_wants}</span></div>}
+                        {c.b_wants && <div className="flex gap-2"><span className="label w-5 shrink-0 text-ink-400">B</span><span>{c.b_wants}</span></div>}
+                        {c.why && <div className="flex gap-2"><span className="label w-5 shrink-0 text-ink-400">!</span><span className="text-ink-700">{c.why}</span></div>}
+                        <div className="rounded-md bg-canvas px-2.5 py-2"><span className="font-semibold text-ink-900">Settled: </span><span className="text-ink-700">{c.resolution}</span></div>
+                        {c.decided_by && <div className="text-[11.5px] text-ink-500">Final say: {c.decided_by}</div>}
+                      </div>
                     </div>
                   ))}
                 </div>

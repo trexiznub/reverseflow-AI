@@ -43,12 +43,22 @@ def meta(db: Session = Depends(get_db), user: m.User = Depends(current_user)):
             "disclaimer": "All records are synthetic and all scenario numbers are illustrative assumptions for demonstration.",
             "user": {"id": user.id, "name": user.name, "role": user.role, "title": user.title, "scope_id": user.scope_id,
                      "approval_limit": user.approval_limit, "is_admin": bool(getattr(user, "is_admin", False))},
-            "auth_mode": auth_mode(), "pages": PAGES.get(user.role, []), "status": bootstrap.status()}
+            "auth_mode": auth_mode(), "pages": PAGES.get(user.role, []), "status": bootstrap.status(),
+            "last_run_at": _last_run_at(db)}
+
+
+def _last_run_at(db: Session) -> str | None:
+    t = db.scalar(select(func.max(m.OrchestratorRun.finished_at)))
+    return t.isoformat() if t else None
 
 
 @router.get("/users")
 def users(db: Session = Depends(get_db)):
     return [{"id": u.id, "name": u.name, "role": u.role, "title": u.title, "scope_id": u.scope_id} for u in db.scalars(select(m.User)).all()]
+
+
+# The west zone served by the Bhiwandi hub. The three surge cities are reported separately.
+WEST_ZONE = ("BOM", "PNQ", "AMD", "JAI")
 
 
 @router.get("/overview")
@@ -60,7 +70,8 @@ def overview(db: Session = Depends(get_db), _: m.User = Depends(require("interna
     pending = db.scalar(select(func.count(m.Recommendation.id)).where(m.Recommendation.status.in_(["pending", "escalated"])))
     since = D - timedelta(days=30)
     sla = db.scalar(select(func.avg(func.cast(m.Return.pickup_sla_met, m.Float))).where(m.Return.pickup_date >= since, m.Return.pickup_sla_met.isnot(None)))
-    west = [c for c in pred.get("clusters", []) if c["cluster_id"] in ("PNQ", "AMD", "JAI")]
+    surge3 = [c for c in pred.get("clusters", []) if c["cluster_id"] in ("PNQ", "AMD", "JAI")]
+    west = [c for c in pred.get("clusters", []) if c["cluster_id"] in WEST_ZONE]
     vf = intel.get("vendor_findings", [])
     pune_gap = next((g for g in logi.get("capacity_gaps", []) if g["cluster_id"] == "PNQ"), None)
     reroute = next((a for a in logi.get("allocation_plan", {}).get("allocation", {}).get("PNQ", []) if not a["default"]), None)
@@ -90,7 +101,9 @@ def overview(db: Session = Depends(get_db), _: m.User = Depends(require("interna
                  "pickup_sla_30d": round(float(sla or 0), 3), "integrity_flags": db.scalar(select(func.count(m.Recommendation.id)).where(m.Recommendation.kind == "integrity_inspection",
                                                                                        m.Recommendation.status.in_(["pending", "escalated"]))),
                  "network_expected_7d": sum(c["expected_network_7d"] for c in pred.get("clusters", [])),
-                 "west_expected_7d": sum(c["expected_network_7d"] for c in west)},
+                 "west_expected_7d": sum(c["expected_network_7d"] for c in west),
+                 "west_zone_cities": [c["city"] for c in west],
+                 "surge_cities_expected_7d": sum(c["expected_network_7d"] for c in surge3)},
         "clusters": pred.get("clusters", []), "vendor_findings": vf, "worst_vendors": intel.get("worst_vendors", []),
         "capacity_gaps": logi.get("capacity_gaps", []), "timeline": timeline,
         "reroutes": [dict(a, cluster_id=cid) for cid, lst in logi.get("allocation_plan", {}).get("allocation", {}).items() for a in lst if not a["default"]],

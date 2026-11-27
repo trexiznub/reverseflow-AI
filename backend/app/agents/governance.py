@@ -11,14 +11,14 @@ POLICY = {
     "pre_dispatch_qc": ("always", "vendor_quality_manager", "Vendor process change"),
     "size_chart_update": ("always", "vendor_quality_manager", "Listing change"),
     "listing_fix": ("always", "vendor_quality_manager", "Listing change"),
-    "exchange_first": ("always", "ops_manager", "Return-policy change"),
+    "exchange_first": ("always", "dispute_reviewer", "Customer policy change"),
     "reroute": ("limit", "ops_manager", "Logistics move"),
     "extra_pickup": ("limit", "ops_manager", "Logistics spend"),
     "inspection_overtime": ("limit", "warehouse_manager", "Warehouse spend"),
     "rapid_restock": ("limit", "warehouse_manager", "Processing order"),
     "refurbish_batch": ("limit", "warehouse_manager", "Refurbishment spend"),
     "redistribute": ("limit", "ops_manager", "Inventory move"),
-    "integrity_inspection": ("always", "dispute_reviewer", "Customer-affecting check"),
+    "integrity_inspection": ("always", "dispute_reviewer", "Customer policy check"),
 }
 FORBIDDEN = {"customer_rejection", "customer_penalty", "vendor_suspension", "refund_block"}
 

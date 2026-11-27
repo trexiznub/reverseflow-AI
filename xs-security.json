@@ -21,7 +21,7 @@
     },
     {
       "name": "$XSAPPNAME.DisputeReviewer",
-      "description": "Return checks: review flagged returns"
+      "description": "Customer Policy: return-policy changes and checks on flagged returns"
     },
     {
       "name": "$XSAPPNAME.Vendor",
@@ -80,7 +80,7 @@
     },
     {
       "name": "DisputeReviewer",
-      "description": "Return checks",
+      "description": "Customer Policy",
       "scope-references": [
         "$XSAPPNAME.DisputeReviewer"
       ]
@@ -154,7 +154,7 @@
     },
     {
       "name": "ReverseFlow_DisputeReviewer",
-      "description": "ReverseFlow return checks",
+      "description": "ReverseFlow Customer Policy",
       "role-template-references": [
         "$XSAPPNAME.DisputeReviewer"
       ]

@@ -63,7 +63,7 @@ Responsibilities are split so no rule is written twice:
 
 ## 4. Tested here
 
-* Backend: 27 automated tests pass (`cd backend && .venv/bin/pytest -q`), including Planner removal, production refusal of the demo header, Admin-only actions, XSUAA persona rules, the S/4HANA sandbox and the live HTTP path, connection tests reporting failures, test receivers never counting as connected, grounded summaries and SAC datasets.
+* Backend: 34 automated tests pass (`cd backend && .venv/bin/pytest -q`), including Planner removal, production refusal of the demo header, Admin-only actions, XSUAA persona rules, the S/4HANA sandbox and the live HTTP path, connection tests reporting failures, test receivers never counting as connected, grounded summaries and SAC datasets.
 * CAP: 9 checks pass (`cd sap-business-service && npm test`, with the backend on 8040 and CAP on 4004): sign-in required, reads with expansions, a seller sees only their own returns, products and record, audit log limited to operations, writes refused, decisions forwarded to the backend, seller scores and stock.
 * Live connection test in the running app: CAP reported **Connected**; every other service reported **Not configured**.
 * HANA migration tool: copied 166,093 rows in 24 tables between two SQLite files with counts verified. **Not yet run against HANA Cloud.**
@@ -99,7 +99,7 @@ Not tested, because no tenant is available here: XSUAA on BTP, HANA Cloud, CAP o
 | `AICORE_AUTH_URL`, `AICORE_CLIENT_ID`, `AICORE_CLIENT_SECRET`, `AICORE_BASE_URL`, `AICORE_DEPLOYMENT_ID`, `AICORE_RESOURCE_GROUP` | AI Core and Generative AI Hub (a bound `aicore` service supplies all but the deployment) |
 | `AI_LAUNCHPAD_URL` | Link to AI Launchpad on the SAP page |
 | `SAC_URL`, `SAC_TOKEN_URL`, `SAC_CLIENT_ID`, `SAC_CLIENT_SECRET` | Test the Analytics Cloud connection |
-| `WORKZONE_SITE_URL` | Link to the Work Zone site |
+| `WORKZONE_SITE_URL` | Your Work Zone site URL (Site Settings → URL). Tested by opening it |
 | `DATABASE_URL` | `hana://USER:PASSWORD@HOST:443?encrypt=true`, or bind HANA Cloud |
 
 Existing variables (IBP/TM/Ariba, LLM, CORS) are listed in the README.
@@ -128,6 +128,34 @@ In SAP Business Application Studio:
 * The S/4HANA field names follow SAP's published API definitions; confirm them against your system's `$metadata`. Sandbox data is synthetic and always labelled.
 * IBP, TM and Ariba messages are JSON documents modelled on those products' APIs; an Integration Suite flow must map them.
 * Generative AI Hub uses a direct model deployment (`/v2/inference/deployments/{id}/chat/completions`), not the orchestration service.
-* AI Launchpad and Work Zone have no API the app can test; they are always shown as *configured, not tested* at best.
+* AI Launchpad has no API the app can test; it is shown as *configured, not tested* at best. For Work Zone the test opens `WORKZONE_SITE_URL` and checks it is a live SAP launchpad site; the tile itself sits behind SAP sign-in and is not checked.
 * CAP on BTP requires HANA Cloud. Locally it reads the backend's SQLite file.
 * The website was not rebuilt in SAPUI5; it is added to Work Zone as a URL app.
+
+## 10. SAP readiness checklist
+
+Where each SAP-readiness item stands. "Done in code" means built and tested here; "Needs your account" means it can only be finished in your SAP BTP subaccount.
+
+| Area | Status | What is in place / what is left |
+|---|---|---|
+| Database | Needs your account | Code runs on SAP HANA Cloud (binding or `DATABASE_URL`), and `app.tools.migrate_to_hana` copies and verifies the data. Left: create the HANA Cloud instance, bind it, run the copy. SQLite stays for local development. |
+| Authentication | Done in code | With XSUAA bound (always on Cloud Foundry), every call needs an SAP token and the person switcher disappears. On Cloud Foundry or with `REVERSEFLOW_ENV=production`, the demo header is refused. The public Render demo keeps the switcher on purpose. |
+| Authorisation | Done in code | Role collections map to roles. Each kind of action has one owning team: Operations (vans, routing), Seller Quality (seller holds, listing and size-chart fixes), Warehouse (shifts, inspection order, repairs) and Customer Policy (size-swap offers, checks on flagged returns). The Operations Manager decides only escalations. Approval limits apply to every person. |
+| Backend (CAP) | Done in code | CAP serves the data over OData with SAP roles and seller-level filters. Approvals go through CAP to the one approval engine in the backend, which writes the decision log and audit trail, so both paths produce the same records. |
+| Integration | Needs your account | Integration Suite flows are specified below but not built: they need an Integration Suite tenant and the target systems. |
+| SAP outbox | Done in code | Master-data check before sending; one message per decision and system; Idempotency-Key header; acknowledgement id kept; retries for network errors, 408, 429 and 5xx at 1, 2, 4 and 8 minutes, up to 5 attempts; other 4xx answers are not retried. |
+| Master data | Done in code | Cities, warehouses, carriers, sellers and SKUs (and that each SKU belongs to the seller) are checked before a message is created. A failing message is "blocked" and never sent. |
+| Work Zone | Done in your account | ReverseFlow AI is an app in Content Manager, in the ReverseFlow group, assigned to the Everyone role, on the ReverseFlow site. It opens the public demo URL; for SAP sign-in, point it at the app router after a BTP deployment. |
+| Deployment | Needs your account | `mta.yaml` describes the full BTP deployment. It has not been deployed to a BTP subaccount from here. |
+
+## 11. Integration Suite flows (specification)
+
+One flow per target system. Each receives the ReverseFlow JSON message (HTTPS, OAuth client credentials), checks `Idempotency-Key`, maps, calls the SAP API, and returns 2xx with the SAP document id as `messageId`.
+
+| Flow | Receives | Maps to | Notes |
+|---|---|---|---|
+| `RF_to_IBP_Planning` | `PlanningData` with key figure `RETURNSFORECAST`, `RECOVEREDSUPPLY` or `EXPECTEDRECOVEREDSUPPLY` | IBP planning data integration (OData) for planning area `SAP_IBP_PLANNING_AREA` | `EXPECTEDRECOVEREDSUPPLY` is expected supply before inspection; keep it in its own key figure, never as confirmed stock. |
+| `RF_to_TM_TransportationRequest` | `TransportationRequest` (extra pickup capacity, warehouse rerouting) | TM freight unit / order APIs | Carrier ids must exist as business partners in TM. |
+| `RF_to_BusinessNetwork_Quality` | Quality notification (seller hold, pre-dispatch check, size-chart and listing fix) | Ariba / SAP Business Network quality notification (cXML) | Seller ids must map to supplier ids in the network. |
+
+The JSON fields are modelled on these APIs but have not been confirmed against a live tenant; the flows are where the final field mapping belongs.

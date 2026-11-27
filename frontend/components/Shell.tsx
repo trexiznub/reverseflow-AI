@@ -2,7 +2,7 @@
 import clsx from "clsx";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, CornerDownLeft, LogIn, Menu, Search, Users, X,
+  ArrowUp, ChevronsLeft, RefreshCw, ChevronsRight, ChevronsUpDown, CornerDownLeft, LogIn, Menu, Search, Users, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -47,6 +47,20 @@ function PersonMenu({ collapsed }: { collapsed: boolean }) {
   const router = useRouter();
   useOutside(ref, () => setOpen(false));
   const u = meta?.user;
+  // With SAP sign-in (XSUAA) people are who their SAP account says they are: no switcher, just sign-out.
+  if (meta?.auth_mode === "xsuaa") {
+    return (
+      <div className={clsx("flex items-center gap-2.5 rounded-lg border border-line p-2", collapsed && "justify-center border-transparent")} title="Signed in with SAP">
+        <Avatar name={u?.name} role={u?.role} />
+        {!collapsed && (
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-[12.5px] font-medium text-ink-900">{u?.name}</span>
+            <span className="block truncate text-[11px] text-ink-500">{ROLE_LABEL[u?.role] || ""} · <a href="/do/logout" className="hover:text-ink-900">Sign out</a></span>
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen((o) => !o)} title="Switch person"
@@ -238,10 +252,11 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => { try { setCollapsedState(localStorage.getItem("rf.nav") === "min"); } catch {} }, []);
   const setCollapsed = (v: boolean) => { setCollapsedState(v); try { localStorage.setItem("rf.nav", v ? "min" : "full"); } catch {} };
 
-  // First visit: open on the start screen, where people pick who they are.
+  // First visit: open on the start screen, where people pick who they are (demo sign-in only).
   useEffect(() => {
+    if (!meta || meta.auth_mode === "xsuaa") return;
     try { if (path === "/" && !localStorage.getItem("rf.started")) router.replace("/start"); } catch {}
-  }, [path, router]);
+  }, [path, router, meta]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -294,6 +309,11 @@ export function Shell({ children }: { children: ReactNode }) {
               </motion.div>
             </AnimatePresence>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+              {meta?.last_run_at && (
+                <span className="label hidden items-center gap-1.5 text-ink-400 xl:flex" title="When the agents last analysed the data. All data is synthetic.">
+                  <RefreshCw className="h-3 w-3" />Data refreshed {new Date(meta.last_run_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} · synthetic
+                </span>
+              )}
               <button onClick={() => setPalette(true)} aria-label="Search pages"
                 className="flex h-8 items-center gap-2 rounded-md border border-line-strong px-2.5 text-[12.5px] text-ink-500 transition-colors hover:border-ink-500 hover:text-ink-900">
                 <Search className="h-3.5 w-3.5" />

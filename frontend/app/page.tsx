@@ -66,6 +66,56 @@ function Lifecycle({ steps }: { steps: any[] }) {
   );
 }
 
+/** How a forecast becomes work: returns requested → pickups the vans can make → arrivals at the warehouse → inspections. */
+function ForecastToWarehouse({ gaps, reroutes, facilities }: { gaps: any[]; reroutes: any[]; facilities: any[] }) {
+  const west = ["PNQ", "BOM", "AMD", "JAI"].map((id) => gaps.find((g) => g.cluster_id === id)).filter(Boolean);
+  const facName = (id: string) => (facilities.find((f) => f.id === id)?.name || id).replace(/ Returns (Centre|Hub)$/, "").replace(" West-zone", "");
+  if (!west.length) return null;
+  return (
+    <Section label="From forecast to warehouse" icon={Truck} title="What the forecast means for vans and warehouses, per day at the peak">
+      <p className="max-w-3xl text-[13px] leading-relaxed text-ink-500">
+        Each forecast return is a pickup request. Vans collect what they can that day; the rest wait. Collected items reach the warehouse
+        about a day later, split between warehouses as the routing plan says, and the warehouse inspects what it has capacity for.
+        Figures are the average of the three busiest forecast days, before any extra vans or shifts are approved.
+      </p>
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[760px] text-[12.5px]">
+          <thead><tr className="label border-b border-line text-left">
+            <th className="px-4 py-2.5 font-normal">City</th>
+            <th className="py-2.5 text-right font-normal">1 · Returns requested</th>
+            <th className="py-2.5 text-right font-normal">2 · Vans can collect</th>
+            <th className="py-2.5 text-right font-normal">Left waiting</th>
+            <th className="py-2.5 pl-6 font-normal">3 · Arrive next day at</th>
+            <th className="py-2.5 pr-4 text-right font-normal">4 · Home warehouse inspects</th>
+          </tr></thead>
+          <tbody>
+            {west.map((g: any) => {
+              const picked = Math.min(g.planning_volume, g.pickup_capacity);
+              const out = reroutes.filter((r) => r.cluster_id === g.cluster_id);
+              const outShare = out.reduce((a, r) => a + r.share, 0);
+              const home = Math.round(picked * (1 - outShare));
+              return (
+                <tr key={g.cluster_id} className="border-b border-line last:border-0">
+                  <td className="px-4 py-3 font-medium">{g.city}</td>
+                  <td className="num py-3 text-right">{num(g.planning_volume)}</td>
+                  <td className="num py-3 text-right">{num(g.pickup_capacity)}</td>
+                  <td className={clsx("num py-3 text-right", g.pickup_gap > 0 ? "text-bad-700" : "text-ink-500")}>{g.pickup_gap > 0 ? num(g.pickup_gap) : "0"}</td>
+                  <td className="py-3 pl-6 text-ink-700">
+                    <span className="num">{num(home)}</span> at home warehouse
+                    {out.map((r) => <span key={r.facility_id} className="text-ink-500"> · <span className="num">{num(Math.round(picked * r.share))}</span> to {facName(r.facility_id)}</span>)}
+                  </td>
+                  <td className={clsx("num py-3 pr-4 text-right", home > g.inspection_capacity ? "text-bad-700" : "text-ok-700")}>{num(g.inspection_capacity)}{home > g.inspection_capacity ? " (short)" : ""}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11.5px] text-ink-500">Network-scale figures from the forecast and the routing plan (demo data). Reroutes shown are suggestions until approved.</p>
+    </Section>
+  );
+}
+
 export default function Overview() {
   const toast = useToast();
   const { data, error, loading, reload } = useApi<any>("/overview", { poll: 15000 });
@@ -124,7 +174,7 @@ export default function Overview() {
 
       <BigStats items={[
         { label: "Returns vs a normal week", icon: TrendingUp, value: mult(k.west_surge_multiplier), sub: "Pune, Ahmedabad, Jaipur · next 7 days", tone: "bad", hint: "2× means twice as many returns as an ordinary week at this time of year." },
-        { label: "Returns expected, next 7 days", icon: Gauge, value: num(k.network_expected_7d), sub: <>Across all cities · {num(k.west_expected_7d)} in the west</> },
+        { label: "Returns expected, next 7 days", icon: Gauge, value: num(k.network_expected_7d), sub: <>All 8 cities · {num(k.west_expected_7d)} in the west zone ({(k.west_zone_cities || []).join(", ")})</> },
         { label: "Decisions waiting", icon: Inbox, value: num(k.pending_approvals), sub: <Link href="/governance" className="text-blue-600">Open the list</Link>, tone: "warn" },
         { label: "Returns to double-check", icon: SearchCheck, value: num(k.integrity_flags), sub: <Link href="/governance?tab=integrity" className="text-blue-600">Look at them</Link>, hint: "Returns where something doesn't match, like a different serial number. They get a closer look at the warehouse. No customer is refused automatically." },
       ]} />
@@ -146,8 +196,8 @@ export default function Overview() {
                   <div className="mt-1.5 text-[17px] font-semibold leading-snug text-ink-900 group-hover:underline group-hover:decoration-ink-500 group-hover:underline-offset-4">{r.title}</div>
                 </div>
                 <div className="hidden text-[12.5px] text-ink-500 sm:block">
-                  {r.impact_inr ? <div>Protects <span className="num text-ink-900">{inr(r.impact_inr, true)}</span></div> : null}
-                  {r.cost_inr ? <div>Costs <span className="num text-ink-900">{inr(r.cost_inr, true)}</span></div> : <div>No extra cost</div>}
+                  <div>Benefit <span className="num text-ink-900">{r.impact_inr ? inr(r.impact_inr, true) : "—"}</span> · Cost <span className="num text-ink-900">{r.cost_inr ? inr(r.cost_inr, true) : "₹0"}</span></div>
+                  {(r.impact_inr || r.cost_inr) ? <div>Net <span className={clsx("num font-medium", r.net_inr >= 0 ? "text-ok-700" : "text-bad-700")}>{r.net_inr >= 0 ? "+" : "−"}{inr(Math.abs(r.net_inr), true)}</span></div> : null}
                 </div>
                 <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line-strong text-ink-500 transition-all duration-300 group-hover:translate-x-0.5 group-hover:border-paper group-hover:bg-paper group-hover:text-black"><ArrowRight className="h-4 w-4" /></span>
               </Link>
@@ -155,6 +205,8 @@ export default function Overview() {
           </div>
         )}
       </Section>
+
+      <ForecastToWarehouse gaps={gaps} reroutes={data.reroutes || []} facilities={fac} />
 
       {/* Where and can we cope */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
@@ -216,51 +268,28 @@ export default function Overview() {
         </Section>
       )}
 
-      <More title="Behind the numbers" sub="Agent timeline, alerts and the full feedback loop">
+      <More title="Alerts and the last analysis" sub="What the agents flagged. How they decided is on How it works; all key figures are under Reports.">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-[13px] text-ink-500">
-            {run ? <>Last analysis {dayTime(run.finished_at || run.started_at)} · {run.summary?.recommendations?.created ?? 0} new suggestions · <Link href={`/agents?run=${run.id}`} className="text-blue-600">see how it decided</Link></> : "No analysis yet."}
+            {run ? <>Last analysis {dayTime(run.finished_at || run.started_at)} · {run.summary?.recommendations?.created ?? 0} new suggestions · <Link href={`/agents?run=${run.id}`} className="text-blue-600">see how it decided</Link> · <Link href="/analytics" className="text-blue-600">all key figures</Link></> : "No analysis yet."}
           </div>
           <Button onClick={refresh} loading={running}><RefreshCw className="h-3.5 w-3.5" />Run the analysis again</Button>
         </div>
-        {data.timeline?.length > 0 && <Timeline items={data.timeline} />}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <Card>
-            <CardHead icon={Bell} label="Alerts" title="Things the agents flagged" right={<Badge>{data.alerts.length}</Badge>} />
-            <div className="space-y-3">
-              {data.alerts.map((a: any) => (
-                <div key={a.id} className="flex gap-3 border-b border-dashed border-line pb-3 last:border-0">
-                  <span className={clsx("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", a.severity === "high" ? "bg-bad-600" : "bg-warn-500")} />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-medium leading-snug">{a.title}</div>
-                    <div className="mt-0.5 text-[12px] leading-snug text-ink-500">{a.body}</div>
-                    <div className="label mt-1">{AGENT_LABEL[a.agent] || a.agent}</div>
-                  </div>
+        <Card>
+          <CardHead icon={Bell} label="Alerts" title="Things the agents flagged" right={<Badge>{data.alerts.length}</Badge>} />
+          <div className="space-y-3">
+            {data.alerts.map((a: any) => (
+              <div key={a.id} className="flex gap-3 border-b border-dashed border-line pb-3 last:border-0">
+                <span className={clsx("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", a.severity === "high" ? "bg-bad-600" : "bg-warn-500")} />
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium leading-snug">{a.title}</div>
+                  <div className="mt-0.5 text-[12px] leading-snug text-ink-500">{a.body}</div>
+                  <div className="label mt-1">{AGENT_LABEL[a.agent] || a.agent}</div>
                 </div>
-              ))}
-            </div>
-          </Card>
-          <Card>
-            <CardHead icon={Bot} label="The six agents" title="Each one has a single job" right={<Link href="/agents" className="text-xs font-medium text-blue-600">How it works</Link>} />
-            <div>
-              {Object.keys(AGENT_NO).map((a) => (
-                <Link href={AGENT_HREF[a]} key={a} className="flex items-center gap-3 border-b border-line py-2.5 last:border-0 hover:bg-canvas">
-                  <span className="num text-[11px] text-ink-400">{AGENT_NO[a]}</span>
-                  <span className="flex-1 text-[13px] font-medium">{AGENT_LABEL[a]}</span>
-                  <Badge tone={statusTone(run?.summary?.failed_agents?.includes(a) ? "failed" : "completed")} dot>{statusText(run?.summary?.failed_agents?.includes(a) ? "failed" : "completed")}</Badge>
-                </Link>
-              ))}
-            </div>
-            {run?.summary && (
-              <div className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-4 text-center">
-                <div><div className="display-num text-[22px]">{run.summary.messages}</div><div className="label mt-1">messages</div></div>
-                <div><div className="display-num text-[22px]">{run.summary.conflicts}</div><div className="label mt-1">disagreements</div></div>
-                <div><div className="display-num text-[22px]">{run.summary.pending_approvals}</div><div className="label mt-1">for people</div></div>
               </div>
-            )}
-          </Card>
-        </div>
-        <Lifecycle steps={data.lifecycle} />
+            ))}
+          </div>
+        </Card>
         <div className="text-[12px] text-ink-500">Scenario date {day(data.scenario_date)} 2026. All records are synthetic; city volumes are scaled up to illustrate a full marketplace.</div>
       </More>
     </div>

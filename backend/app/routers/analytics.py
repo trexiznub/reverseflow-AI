@@ -22,7 +22,7 @@ from ..services import settings as st
 router = APIRouter()
 
 DEFS = {
-    "forecast_accuracy": ("How accurate the forecast is", "How close the 7-day forecast came to what actually happened, on days it hadn't seen (100% would be perfect). Technically: 1 minus WAPE, daily by city."),
+    "forecast_error": ("Forecast error (WAPE)", "How far the 7-day-ahead forecast missed, as a share of actual returns, daily per city, on days the model hadn't seen. Lower is better; 0% would be perfect. Tested on synthetic historical data. With about 3 returns per city per day in the demo data, chance alone keeps even a perfect forecast near 45%; weekly totals are the planning grain."),
     "surge_lead_time": ("How early the surge was spotted", "Days of warning between the forecast first showing 1.5× normal returns and the actual peak, in last year's festive season."),
     "avoidable_rate": ("Returns that could be avoided", "Share of returns caused by size, quality or listing problems, which a fix could prevent. Uses the warehouse's reason, or the system's reading of the customer's words."),
     "cost_per_return": ("Cost of handling one return", "Pickup, warehouse handling and ₹6 a day of storage until inspection, per returned item."),
@@ -67,11 +67,12 @@ def kpis(db: Session = Depends(get_db), _: m.User = Depends(require("internal"))
             wk = pd.Timestamp(p["day"]).to_period("W").start_time.date().isoformat()
             a = weekly.setdefault(wk, [0.0, 0.0, 0.0])
             a[0] += p["actual"]; a[1] += abs(p["ml"] - p["actual"]); a[2] += abs(p["baseline"] - p["actual"])
-        out.append(_kpi("forecast_accuracy", round(1 - ev["daily_cluster"]["ml"]["wape"], 4), "ratio",
-                        trend=[{"period": k, "value": round(1 - v[1] / max(v[0], 1), 4), "baseline": round(1 - v[2] / max(v[0], 1), 4)} for k, v in sorted(weekly.items())],
-                        chart="line", extra={"baseline_value": round(1 - ev["daily_cluster"]["baseline"]["wape"], 4), "evaluation": ev["label"],
-                                             "weekly_accuracy": round(1 - ev["weekly_cluster"]["ml"]["wape"], 4),
-                                             "weekly_baseline": round(1 - ev["weekly_cluster"]["baseline"]["wape"], 4)}))
+        out.append(_kpi("forecast_error", ev["daily_cluster"]["ml"]["wape"], "ratio",
+                        trend=[{"period": k, "value": round(v[1] / max(v[0], 1), 4), "baseline": round(v[2] / max(v[0], 1), 4)} for k, v in sorted(weekly.items())],
+                        chart="line", extra={"baseline_value": ev["daily_cluster"]["baseline"]["wape"], "evaluation": ev["label"],
+                                             "lower_is_better": True, "synthetic": True,
+                                             "weekly_wape": ev["weekly_cluster"]["ml"]["wape"],
+                                             "weekly_baseline": ev["weekly_cluster"]["baseline"]["wape"]}))
         leads = ev.get("surge_lead_time", [])
         out.append(_kpi("surge_lead_time", round(sum(l["lead_days"] for l in leads) / len(leads), 1) if leads else None, "days",
                         drill=leads, chart="bar", extra={"current_alerts": fc.get("surge_alerts", [])}))

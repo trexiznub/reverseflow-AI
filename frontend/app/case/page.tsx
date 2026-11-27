@@ -81,10 +81,13 @@ export default function CasePage() {
     const returned = fashion * v.return_rate;
     const handling = returned * v.reverse_cost_pct;
     const waiting = returned * v.value_lost_pct;
-    const timingSaving = waiting * d.simulation.reduction;
     const prevented = returned * d.avoidable_share * v.prevented_share;
+    // Prevented returns never happen, so their handling and value loss count once, under prevention.
+    // Faster handling only applies to the returns that still happen (no double counting).
+    const stillReturned = returned - prevented;
+    const timingSaving = stillReturned * v.value_lost_pct * d.simulation.reduction;
     const preventionSaving = prevented * (v.reverse_cost_pct + v.value_lost_pct);
-    return { fashion, returned, handling, waiting, timingSaving, prevented, preventionSaving, total: timingSaving + preventionSaving };
+    return { fashion, returned, handling, waiting, timingSaving, prevented, stillReturned, preventionSaving, total: timingSaving + preventionSaving };
   }, [d, v]);
 
   if (c.error) return <ErrorState error={c.error} onRetry={c.reload} />;
@@ -107,7 +110,7 @@ export default function CasePage() {
           Problem statement
         </H>
         <BigStats items={[
-          { label: "Festive online sales, 2025", value: "₹1.15 lakh cr", sub: <>Redseer forecast, up 20–25% <Src ids={fact("festive_gmv").sources} sources={S} /></> },
+          { label: "Festive online sales, 2026", value: "₹1.41 lakh cr", sub: <>Up 17% on 2025 (Datum Intelligence) <Src ids={fact("festive_gmv").sources} sources={S} /></> },
           { label: "First 11 days vs normal", value: "3.5×", sub: <>Sales, so returns follow <Src ids={fact("first_days").sources} sources={S} /></> },
           { label: "Fashion orders returned", value: "17–25%", sub: <>Against 7.8% for all e-commerce <Src ids={fact("fashion_returns").sources} sources={S} /></> },
           { label: "Cost of a return", value: "1.5–2×", sub: <>A forward delivery <Src ids={fact("reverse_cost").sources} sources={S} /></> },
@@ -172,8 +175,9 @@ export default function CasePage() {
       {/* 4 */}
       <Num n="04">
         <H sub="Priya in Pune buys a ₹7,999 bandhani lehenga in the pre-Navratri sale. The stitching opens at the waist during garba, and she books a return the day after Dussehra, along with thousands of shoppers in Pune, Ahmedabad and Jaipur.">
-          A real-life example
+          Illustrative customer journey
         </H>
+        <p className="-mt-4 mb-5 text-[12px] text-ink-400">Priya and her order are invented to show how the parts fit together. City figures below come from the demo data.</p>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Card>
             <div className="label mb-3">Without coordination</div>
@@ -227,7 +231,7 @@ export default function CasePage() {
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                 <div>
                   <div className="display-num text-[36px]">{cr(model.timingSaving)}</div>
-                  <div className="mt-2 text-[12.5px] leading-relaxed text-ink-500">Less value lost to waiting: the simulation's {pct(p.reduction)} reduction applied to {cr(model.waiting)}.</div>
+                  <div className="mt-2 text-[12.5px] leading-relaxed text-ink-500">Less value lost to waiting: the simulation's {pct(p.reduction)} reduction applied to the waiting loss of the {cr(model.stillReturned)} of returns that still happen.</div>
                 </div>
                 <div>
                   <div className="display-num text-[36px]">{cr(model.preventionSaving)}</div>
@@ -267,8 +271,10 @@ export default function CasePage() {
           <div className="rounded border border-line bg-black p-4 font-mono text-[11.5px] leading-relaxed text-ink-500">
             returned = sales × fashion share × return rate<br />
             handling = returned × handling cost share · lost to waiting = returned × value lost share<br />
-            timing saving = lost to waiting × simulated reduction ({pct(p.reduction)})<br />
-            prevention saving = returned × avoidable share ({pct(d.avoidable_share)}, demo data) × prevented share × (handling share + value lost share)
+            prevented = returned × avoidable share ({pct(d.avoidable_share)}, demo data) × prevented share<br />
+            timing saving = (returned − prevented) × value lost share × simulated reduction ({pct(p.reduction)})<br />
+            prevention saving = prevented × (handling share + value lost share)<br />
+            Each prevented return is counted once, under prevention, never again under timing.
           </div>
         </More>
       </Num>

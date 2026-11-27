@@ -6,10 +6,12 @@ the same credentials can be given as plain environment variables.
 """
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -69,6 +71,14 @@ def client_credentials_token(token_url: str, client_id: str, client_secret: str,
     return tok
 
 
+def _text(body: bytes, headers) -> str:
+    """Response body as text. Some SAP gateways (the Business Accelerator Hub
+    sandbox, for one) compress replies even when not asked to."""
+    if (headers.get("Content-Encoding", "") if headers else "").lower() == "gzip" or body[:2] == b"\x1f\x8b":
+        body = gzip.decompress(body)
+    return body.decode(errors="replace")
+
+
 def http_json(method: str, url: str, body: dict | None = None, headers: dict | None = None, timeout: float = 15) -> tuple[int, dict | str]:
     h = {"Accept": "application/json", **(headers or {})}
     data = None
@@ -78,10 +88,10 @@ def http_json(method: str, url: str, body: dict | None = None, headers: dict | N
     req = urllib.request.Request(url, data=data, method=method, headers=h)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            raw = r.read().decode(errors="replace")
+            raw = _text(r.read(), r.headers)
             code = r.status
     except urllib.error.HTTPError as e:  # keep the SAP error text for the outbox
-        raw = e.read().decode(errors="replace")
+        raw = _text(e.read(), e.headers)
         code = e.code
     try:
         return code, json.loads(raw) if raw else {}

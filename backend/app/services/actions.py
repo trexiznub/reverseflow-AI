@@ -11,6 +11,8 @@ from .. import models as m
 from . import settings as st
 
 STATUSES = {"pending", "approved", "rejected", "escalated"}
+ROLE_NAME = {"ops_manager": "Operations Manager", "vendor_quality_manager": "Seller Quality Manager",
+             "warehouse_manager": "Warehouse Manager", "dispute_reviewer": "Customer Policy Lead"}
 ACTION_TO_STATUS = {"approve": "approved", "reject": "rejected", "escalate": "escalated"}
 
 
@@ -112,8 +114,10 @@ def can_decide(user: m.User, r: m.Recommendation) -> tuple[bool, str]:
         return False, "Partner and customer roles cannot approve marketplace interventions."
     if r.status == "escalated":
         return (user.role == "ops_manager", "Escalated items are decided by the Operations Manager.")
-    if user.role != r.approver_role and user.role != "ops_manager":
-        return False, f"This item requires the {r.approver_role.replace('_', ' ')} role."
+    # Each kind of action has one owning role (see POLICY in agents/governance.py). Nobody, including the
+    # Operations Manager, approves another team's actions; they can only be escalated to the Operations Manager.
+    if user.role != r.approver_role:
+        return False, f"This needs the {ROLE_NAME.get(r.approver_role, r.approver_role)}."
     return True, ""
 
 

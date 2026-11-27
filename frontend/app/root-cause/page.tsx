@@ -166,12 +166,13 @@ export default function RootCause() {
         <Card className="h-fit">
           {!selected ? (
             <>
-              <CardHead label="Sellers with a clear problem" title="Pick one to trace it" sub="Each has far more of one kind of return than other sellers. The gap is too big to be chance." />
+              <CardHead label="Sellers with a clear problem" title="Pick one to trace it" sub="Each has far more of one kind of return than other sellers, last 90 days. Flagged only with at least 20 returns, at least 10 of this kind, twice the others' rate, and z of 4 or more." />
               <div className="space-y-2">
                 {s.vendor_findings.map((v: any) => (
                   <button key={v.vendor_id + v.reason} onClick={() => setVendor(v.vendor_id)} className={clsx("w-full rounded border p-3 text-left hover:border-ink-500", vendor === v.vendor_id ? "border-ink-500" : "border-line")}>
                     <div className="flex justify-between text-[13px] font-semibold"><span>{v.vendor_name}</span><span className="num text-bad-700">{pct(v.share)}</span></div>
-                    <div className="mt-0.5 text-[12px] text-ink-500">of their returns: “{v.reason_label}” (others: {pct(v.network_share)})<DetailOnly> · z {v.z}</DetailOnly></div>
+                    <div className="mt-0.5 text-[12px] text-ink-500">of their returns: “{v.reason_label}” (others: {pct(v.network_share)})</div>
+                    <div className="mt-1 text-[11.5px] text-ink-400"><span className="num">{num(v.returns)}</span> of <span className="num">{num(v.vendor_returns)}</span> returns · other sellers <span className="num">{num(v.others_with_reason)}</span> of <span className="num">{num(v.others_returns)}</span> · z = <span className="num">{v.z}</span></div>
                     <div className="mt-1.5 text-[12px] text-ink-900">Suggested fix: {v.intervention}</div>
                   </button>
                 ))}
@@ -184,7 +185,7 @@ export default function RootCause() {
                 <div>
                   <KV k="Returns shown" v={num(selected.data.returns)} />
                   {(selected.data.findings || []).map((f: any) => (
-                    <div key={f.reason} className="mt-2 rounded bg-bad-50 p-3 text-[12.5px] leading-relaxed"><b>{reasonLabel(f.reason)}</b>: {pct(f.share)} of this seller's returns, against {pct(f.network_share)} for other sellers. That gap is far too big to be chance.<DetailOnly> (z = {f.z})</DetailOnly></div>
+                    <div key={f.reason} className="mt-2 rounded bg-bad-50 p-3 text-[12.5px] leading-relaxed"><b>{reasonLabel(f.reason)}</b>: {pct(f.share)} of this seller's returns ({f.returns} of {f.vendor_returns}), against {pct(f.network_share)} for other sellers{f.others_returns ? ` (${f.others_with_reason} of ${f.others_returns})` : ""}. z = {f.z}: the gap is {f.z} standard errors wide; above 4 it would happen by chance less than once in 15,000 times.</div>
                   ))}
                   {!selected.data.flagged && <div className="mt-2 text-xs text-ink-500">No clear problem for this seller.</div>}
                 </div>
@@ -278,21 +279,22 @@ export default function RootCause() {
       <More title="Seller scorecard and model accuracy" sub="Every seller ranked, and how accurate the reason-reading model is">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHead label="Seller scorecard" title="All sellers, worst first" sub="Score out of 100 from return rate, quality problems, size problems, damaged returns and review tone, last 90 days" />
+          <CardHead label="Seller scorecard" title="All sellers, worst first"
+            sub="Score = 100 − (return rate × 120 + quality-fault share × 60 + graded-damaged share × 40 + size-problem share × 25) + review tone × 8, kept between 0 and 100. Last 90 days. The weights are our design choices, not an industry standard." />
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px] text-[12.5px]">
-              <thead><tr className="label text-left"><th className="pb-2 font-normal">Seller</th><th className="pb-2 text-right font-normal">Score</th><th className="pb-2 text-right font-normal">Return rate</th><th className="pb-2 text-right font-normal">Quality</th><th className="pb-2 text-right font-normal">Size</th><th className="pb-2 text-right font-normal">Damaged</th><th className="pb-2 text-right font-normal">Review tone</th><th className="pb-2 text-right font-normal">Status</th></tr></thead>
+              <thead><tr className="label text-left"><th className="pb-2 font-normal">Seller</th><th className="pb-2 text-right font-normal">Score</th><th className="pb-2 text-right font-normal">Return rate</th><th className="pb-2 text-right font-normal">Quality</th><th className="pb-2 text-right font-normal">Size</th><th className="pb-2 text-right font-normal">Damaged</th><th className="pb-2 text-right font-normal">Review tone</th><th className="pb-2 text-right font-normal">Returns / orders</th></tr></thead>
               <tbody>
                 {s.vendor_rankings.map((v: any) => (
                   <tr key={v.vendor_id} className="cursor-pointer border-t border-line hover:bg-canvas" onClick={() => { setVendor(v.vendor_id); setSku(""); setSelected(null); window.scrollTo({ top: 500, behavior: "smooth" }); }}>
-                    <td className="py-1.5"><div className="font-medium">{v.name}</div><div className="text-[10.5px] text-ink-500">{v.specialty} · {v.city}</div></td>
+                    <td className="py-1.5"><div className="font-medium">{v.name}{v.qc_hold && <Badge tone="bad" className="ml-1.5">paused for checks</Badge>}</div><div className="text-[10.5px] text-ink-500">{v.specialty} · {v.city}</div></td>
                     <td className="py-1.5 text-right"><span className={clsx("num rounded px-1.5 py-0.5 font-semibold", v.quality_score < 60 ? "bg-bad-50 text-bad-700" : v.quality_score < 75 ? "bg-warn-50 text-warn-700" : "bg-ok-50 text-ok-700")}>{v.quality_score}</span></td>
                     <td className="num py-1.5 text-right">{pct(v.return_rate, 1)}</td>
                     <td className="num py-1.5 text-right">{pct(v.defect_rate, 1)}</td>
                     <td className="num py-1.5 text-right">{pct(v.size_issue_rate, 1)}</td>
                     <td className="num py-1.5 text-right">{pct(v.grade_c_rate, 1)}</td>
                     <td className="num py-1.5 text-right">{v.review_sentiment.toFixed(2)}</td>
-                    <td className="py-1.5 text-right">{v.qc_hold ? <Badge tone="bad">paused for checks</Badge> : <span className="text-ink-300">—</span>}</td>
+                    <td className="num py-1.5 text-right text-ink-500">{num(v.returns)} / {num(v.orders)}</td>
                   </tr>
                 ))}
               </tbody>

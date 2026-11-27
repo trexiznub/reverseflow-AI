@@ -40,7 +40,7 @@ export default function Analytics() {
               <div className="mt-2 flex items-end justify-between gap-3">
                 <div>
                   <div className="display-num text-[34px]">{fmtV(k.value, k.unit)}</div>
-                  {k.baseline_value !== undefined && <DetailOnly><div className="mt-1 text-[11px] text-ink-500">baseline model {pct(k.baseline_value, 1)} · weekly {pct(k.weekly_accuracy, 1)}</div></DetailOnly>}
+                  {k.baseline_value !== undefined && <div className="mt-1 text-[11.5px] text-ink-500">Simple baseline {pct(k.baseline_value, 1)} · lower is better · weekly {pct(k.weekly_wape, 1)} vs {pct(k.weekly_baseline, 1)} · synthetic history</div>}
                   {k.window && <div className="mt-1 text-[11px] text-ink-500">{k.window}</div>}
                   {k.key === "surge_lead_time" && <div className="mt-1 text-[11px] text-ink-500">warning given before last year's peak</div>}
                 </div>
@@ -69,11 +69,11 @@ export default function Analytics() {
                 <div className="label mb-2">Over time</div>
                 <div className="h-56">
                   <ResponsiveContainer>
-                    {open.key === "forecast_accuracy" ? (
+                    {open.key === "forecast_error" ? (
                       <LineChart data={open.trend} margin={{ left: -10, right: 8 }}>
                         <CartesianGrid stroke={C.grid} vertical={false} /><XAxis dataKey="period" {...axis} /><YAxis {...axis} domain={[0, 1]} tickFormatter={(v) => pct(v)} />
                         <Tooltip content={<ChartTooltip fmt={(v: number) => pct(v, 1)} />} />
-                        <Line dataKey="value" name="Our forecast" stroke={C.blue} strokeWidth={2} dot={false} /><Line dataKey="baseline" name="Simple guess" stroke={C.amber} dot={false} />
+                        <Line dataKey="value" name="Our forecast's error" stroke={C.blue} strokeWidth={2} dot={false} /><Line dataKey="baseline" name="Simple baseline's error" stroke={C.amber} dot={false} />
                       </LineChart>
                     ) : (
                       <AreaChart data={open.trend} margin={{ left: 0, right: 8 }}>

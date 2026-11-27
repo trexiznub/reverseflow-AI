@@ -38,13 +38,16 @@ class TemplateProvider:
                               "{uptake:.0%} of customers took a size swap when offered in the past.",
             "reroute": "{city} expects about {peak:,} returns a day at the peak, but can only inspect {cap:,} a day. Sending {share:.0%} "
                        "to {alt} uses its {spare:,} a day of spare room, for about ₹{cost:,.0f} in extra transport.",
-            "extra_pickup": "{city}'s vans can collect {cap:,} returns a day, but about {peak:,} a day are expected at the peak. {veh} more vans close the gap.",
+            "extra_pickup": "{city}'s vans can collect {cap:,} returns a day, but about {peak:,} a day are expected at the peak. "
+                            "{veh} more vans on the busiest days save about {saved:,} days of returns waiting for pickup, "
+                            "worth ₹{net:,.0f} more in resale value than the vans cost.",
             "integrity": "Return {rid} needs a closer look at the warehouse: {evidence}. This is not proof of wrongdoing. "
                          "The refund is not held up; a person decides after the item is checked.",
             "refurbish": "{n} items that need a small repair can be fixed and resold for about ₹{value:,.0f}, "
                          "for about ₹{cost:,.0f} in repair costs.",
-            "restock": "{n} festive items that are probably like new are worth about ₹{value:,.0f}, and lose about ₹{decay:,.0f} a day while they wait. "
-                       "They move to the front of the inspection queue so they are back on sale within 3 days.",
+            "restock": "{n} festive items are predicted to be like new (from the return reason and past inspections, not yet checked). "
+                       "Together they are worth about ₹{value:,.0f} and lose about ₹{decay:,.0f} a day while they wait. "
+                       "Moving them to the front of the inspection queue gets the ones that pass back on sale sooner; each still has to pass inspection.",
             "customer_return": "{status_text} for your {product}. {next_step}",
             "return_comments": "{n} returns of {product} ({sku}) in the last {window} days. The most common reason is {top_label} "
                                "({top_share:.0%} of returns){second}. The reasons are read from customers' own words by the text model.",

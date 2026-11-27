@@ -50,14 +50,14 @@ export const AGENT_NO: Record<string, string> = { prediction: "01", intelligence
 
 export const ROLE_LABEL: Record<string, string> = {
   ops_manager: "Operations Manager", vendor_quality_manager: "Seller Quality Manager", warehouse_manager: "Warehouse Manager",
-  dispute_reviewer: "Return Checks", vendor: "Seller", logistics: "Delivery Partner", warehouse: "Inspection Team", customer: "Customer",
+  dispute_reviewer: "Customer Policy", vendor: "Seller", logistics: "Delivery Partner", warehouse: "Inspection Team", customer: "Customer",
 };
 
 /** Plain names for the kinds of action the system can suggest. */
 export const KIND_LABEL: Record<string, string> = {
   vendor_qc_hold: "Pause a seller for quality checks", pre_dispatch_qc: "Check items before they ship", size_chart_update: "Fix a size chart",
   listing_fix: "Fix product photos or description", exchange_first: "Offer a size swap before a refund", reroute: "Send returns to another warehouse",
-  extra_pickup: "Add pickup vans", inspection_overtime: "Add an extra inspection shift", rapid_restock: "Put items back on sale quickly",
+  extra_pickup: "Add pickup vans", inspection_overtime: "Add an extra inspection shift", rapid_restock: "Inspect valuable items first",
   refurbish_batch: "Repair and resell", redistribute: "Move stock to where it sells", integrity_inspection: "Double-check a return",
 };
 

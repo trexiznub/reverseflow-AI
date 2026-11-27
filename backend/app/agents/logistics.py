@@ -28,6 +28,42 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+HORIZON_DAYS = 21  # forecast week plus two weeks to clear any backlog
+
+
+def backlog(arrivals: list[float], capacity: list[float]) -> dict:
+    """Day-by-day pickup queue. Returns waiting item-days and pickups made on the day they were due."""
+    b, wait, late = 0.0, 0.0, 0.0
+    for a, k in zip(arrivals, capacity):
+        picked = min(b + a, k)
+        late += max(0.0, min(b, picked))  # pickups that cleared earlier backlog
+        b = b + a - picked
+        wait += b
+    return {"item_days_waiting": wait, "left_at_end": b, "late_pickups": late}
+
+
+def size_vans(arrivals: list[float], cap: float, ppv: int, value_per_item_day: float, cost_per_van_day: float) -> dict:
+    """Choose how many extra vans to hire on the over-capacity days so that the value they protect
+    exceeds what they cost by the most. Returns the best option and the options compared."""
+    hire = [a > cap for a in arrivals]
+    hire_days = sum(hire)
+    base = backlog(arrivals, [cap] * len(arrivals))
+    max_v = math.ceil(max(0.0, max(arrivals[:7]) - cap) / ppv) if arrivals else 0
+    options = []
+    for v in range(0, max_v + 1):
+        caps = [cap + (v * ppv if h else 0) for h in hire]
+        q = backlog(arrivals, caps)
+        saved_days = base["item_days_waiting"] - q["item_days_waiting"]
+        benefit = saved_days * value_per_item_day
+        cost = v * cost_per_van_day * hire_days
+        options.append({"vans": v, "cost": round(cost), "benefit": round(benefit), "net": round(benefit - cost),
+                        "waiting_days_avoided": round(saved_days), "left_after_3_weeks": round(q["left_at_end"])})
+    best = max(options, key=lambda o: (o["net"], -o["vans"])) if options else {"vans": 0, "net": 0}
+    return {"best": best, "hire_days": hire_days, "no_vans": {"item_days_waiting": round(base["item_days_waiting"]),
+            "left_after_3_weeks": round(base["left_at_end"])},
+            "options": [o for o in options if o["vans"] in {0, best["vans"], max_v} or o["vans"] % max(1, max_v // 6) == 0]}
+
+
 def transfer_cost(km: float) -> float:
     return 8.0 + 0.12 * km
 
@@ -112,6 +148,19 @@ class ReverseLogisticsAgent(Agent):
                                                 "capacity": (cc["vehicles"] + extra) * p.pickups_per_vehicle, "ppv": p.pickups_per_vehicle,
                                                 "cost": p.cost_per_pickup}
         fac_over = {k.split(":", 1)[1]: v for k, v in cap_over.items() if k.startswith("inspection:")}
+        # Resale value a returned item loses per day of delay, per city, from recent returns and the resale model.
+        from ..ml.resale import DEFAULTS as RESALE
+        decay = (ctx.settings.get("resale") or {}).get("obsolescence_per_day") or RESALE["obsolescence_per_day"]
+        rows = db.execute(text("""SELECT r.cluster_id, p.category, AVG(r.price), COUNT(*) FROM returns r JOIN products p ON p.sku = r.sku
+                                  WHERE r.request_date >= :s GROUP BY 1, 2"""), {"s": ctx.scenario_date - timedelta(days=90)}).all()
+        acc: dict[str, list[float]] = {}
+        for cid_, cat, price, n in rows:
+            v = acc.setdefault(cid_, [0.0, 0.0])
+            v[0] += float(price) * decay.get(cat, 0.002) * n
+            v[1] += n
+        value_per_day = {k: v[0] / v[1] for k, v in acc.items() if v[1]}
+        if value_per_day:
+            value_per_day["_all"] = sum(value_per_day.values()) / len(value_per_day)
         plan = plan_allocation(plan_vol, clusters, facilities, fac_over)
         fac_by = {f.id: f for f in facilities}
         cl_by = {c.id: c for c in clusters}
@@ -129,13 +178,31 @@ class ReverseLogisticsAgent(Agent):
             gaps.append(gap)
             material = c["risk"] == "high" or gap["pickup_gap"] > 0.25 * pc["capacity"]
             if gap["pickup_gap"] > 0 and days_over and material:
-                veh = math.ceil(gap["pickup_gap"] / pc["ppv"])
-                cost = veh * pc["ppv"] * SURGE_PICKUP_COST * days_over
-                txt, src = llm.explain("extra_pickup", dict(city=c["city"], cap=pc["capacity"], peak=round(plan_vol[cid]), veh=veh), provider)
-                recs.append(rec("extra_pickup", f"Book {veh} extra pickup vans in {c['city']} for {days_over} days ({pc['provider']})", txt,
-                                {"gap": gap, "vehicles": veh, "days": days_over, "unit_cost": SURGE_PICKUP_COST, "provider_id": pc["provider_id"]},
-                                "cluster", cid, impact=gap["pickup_gap"] * days_over * 60, cost=cost, confidence=0.75,
-                                priority="high" if c["risk"] == "high" else "medium", source=src))
+                # Size the van hire by its net value: each day a return waits for pickup it also waits to be
+                # resold, and festive stock loses value every day (the resale model's obsolescence rates).
+                arrivals = [float(p["network_forecast"]) for p in c["forecast"]]
+                arrivals += [float(c["network_normal_daily"])] * max(0, HORIZON_DAYS - len(arrivals))
+                vpd = value_per_day.get(cid, value_per_day.get("_all", 20.0))
+                plan_v = size_vans(arrivals, pc["capacity"], pc["ppv"], vpd, pc["ppv"] * SURGE_PICKUP_COST)
+                best = plan_v["best"]
+                evidence = {"gap": gap, "vehicles": best["vans"], "days": plan_v["hire_days"], "unit_cost": SURGE_PICKUP_COST,
+                            "provider_id": pc["provider_id"], "value_lost_per_item_day": round(vpd, 2),
+                            "value_basis": "average value of returned items in this city × the resale model's daily value loss for each category",
+                            "without_vans": plan_v["no_vans"], "with_vans": best, "options": plan_v["options"],
+                            "covers_share_of_gap": round(min(1.0, best["vans"] * pc["ppv"] / max(gap["pickup_gap"], 1)), 3),
+                            "horizon_days": HORIZON_DAYS}
+                if best["vans"] > 0 and best["net"] > 0:
+                    veh = best["vans"]
+                    txt, src = llm.explain("extra_pickup", dict(city=c["city"], cap=pc["capacity"], peak=round(plan_vol[cid]), veh=veh,
+                                                                saved=best["waiting_days_avoided"], net=best["net"]), provider)
+                    recs.append(rec("extra_pickup", f"Book {veh} extra pickup vans in {c['city']} for {plan_v['hire_days']} days ({pc['provider']})", txt,
+                                    evidence, "cluster", cid, impact=best["benefit"], cost=best["cost"], confidence=0.7,
+                                    priority="high" if c["risk"] == "high" else "medium", source=src))
+                else:
+                    alerts.append(alert("medium", "logistics", f"Extra vans in {c['city']} would cost more than they save",
+                                        f"{c['city']} is short of {gap['pickup_gap']:,} pickups a day at the peak, but hiring vans costs more than the "
+                                        "resale value they protect. Re-routing, exchanges and accepting a short delay are cheaper.",
+                                        "cluster", cid, scope_id=pc["provider_id"]))
                 alerts.append(alert("high", "logistics", f"{c['city']} is short of {gap['pickup_gap']:,} pickups a day",
                                     f"About {gap['planning_volume']:,} returns a day expected at the peak; vans can collect {pc['capacity']:,} a day.",
                                     "cluster", cid, scope_id=pc["provider_id"]))

@@ -155,6 +155,12 @@ export default function Start() {
               <h2 className="text-[26px] font-semibold tracking-tight text-ink-900">Who are you today?</h2>
               <p className="mt-1.5 text-[13.5px] text-ink-500">Each person sees only what their job needs. You can switch at any time from the menu.</p>
             </div>
+            {meta?.auth_mode === "xsuaa" ? (
+              <div className="rounded-xl border border-line bg-[#0A0A0A] p-5">
+                <div className="text-[14px] text-ink-700">You are signed in with SAP as <b className="text-ink-900">{meta.user?.name}</b> ({ROLE_LABEL[meta.user?.role]}). Your role comes from your SAP role collection.</div>
+                <Link href={homeFor(meta.user?.role)} className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-paper px-4 py-2 text-[13px] font-medium text-black">Continue <ArrowRight className="h-4 w-4" /></Link>
+              </div>
+            ) : (
             <div className="space-y-7">
               {PERSON_GROUPS.map((g) => {
                 const list = users.filter((u) => g.roles.includes(u.role));
@@ -173,6 +179,7 @@ export default function Start() {
                 );
               })}
             </div>
+            )}
           </motion.div>
         </div>
 

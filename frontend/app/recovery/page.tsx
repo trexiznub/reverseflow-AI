@@ -83,14 +83,23 @@ export default function Recovery() {
           )}
         </Card>
         <Card>
-          <CardHead label="Condition" title="What shape the returns are in" sub="Expected, based on why customers returned them. Confirmed at inspection." />
+          <CardHead label="Condition" title="What shape the returns are in"
+            sub="Inspected = a person checked it at the warehouse. Predicted = estimated from the return reason, not seen yet. Only inspected items can go back on sale." />
           <div className="space-y-4">
-            {(["A", "B", "C"] as const).map((g, i) => (
-              <div key={g}>
-                <div className="flex justify-between text-[13px]"><span>{({ A: "Like new, resell as is", B: "Needs a small repair", C: "Damaged" } as any)[g]}</span><span className="num">{d.grade_mix[g]}</span></div>
-                <div className="mt-1.5 h-2 rounded-full bg-canvas"><div className="h-full rounded-full" style={{ width: `${(d.grade_mix[g] / Math.max(d.total, 1)) * 100}%`, background: [C.blue, C.navy, C.red][i] }} /></div>
-              </div>
-            ))}
+            {(["A", "B", "C"] as const).map((g, i) => {
+              const ins = d.grade_inspected?.[g] ?? 0, pre = d.grade_predicted?.[g] ?? 0, tot = Math.max(d.total, 1);
+              return (
+                <div key={g}>
+                  <div className="flex justify-between text-[13px]"><span>{({ A: "Like new", B: "Needs a small repair", C: "Damaged" } as any)[g]}</span>
+                    <span className="text-[12px] text-ink-500"><span className="num text-ink-900">{ins}</span> inspected · <span className="num">{pre}</span> predicted</span></div>
+                  <div className="mt-1.5 flex h-2 overflow-hidden rounded-full bg-canvas">
+                    <div className="h-full" style={{ width: `${(ins / tot) * 100}%`, background: [C.blue, C.navy, C.red][i] }} />
+                    <div className="h-full opacity-35" style={{ width: `${(pre / tot) * 100}%`, background: [C.blue, C.navy, C.red][i] }} />
+                  </div>
+                </div>
+              );
+            })}
+            <div className="text-[11.5px] text-ink-500">Solid: inspected. Faded: predicted.</div>
           </div>
         </Card>
       </div>
@@ -99,7 +108,7 @@ export default function Recovery() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
           <div>
             <div className="text-[15px] font-semibold">Which items to check first</div>
-            <div className="text-[12.5px] text-ink-500">Top of the list loses the most money per day. Switch to see the old first-come-first-served order.</div>
+            <div className="text-[12.5px] text-ink-500">The order to inspect them in: top of the list loses the most money per day. Nothing goes back on sale until it passes inspection.</div>
           </div>
           <Segmented value={sort} onChange={setSort} items={[{ id: "value", label: "Most value first" }, { id: "fifo", label: "Arrival order" }]} />
         </div>
@@ -115,7 +124,7 @@ export default function Recovery() {
                   <td className="num px-4 py-2 text-ink-400">{i + 1}</td>
                   <td className="py-2"><div className="font-medium">{it.name}</div><div className="text-[11px] text-ink-400">returned {it.age_days} days ago{detail && <span className="font-mono"> · {it.return_id} · {it.sku}</span>}</div></td>
                   <td className="py-2 text-ink-700">{it.facility_id?.replace("FAC-", "")} <span className="text-[11px] text-ink-500">· {it.status.replace("_", " ")}</span>{it.fast_track && <Badge tone="ok" className="ml-1">fast-tracked</Badge>}</td>
-                  <td className="py-2 text-center"><span className={clsx("inline-block rounded-sm px-1.5 py-0.5 text-[11px]", it.expected_grade === "A" ? "bg-paper text-black" : it.expected_grade === "B" ? "bg-canvas text-ink-900" : "bg-bad-50 text-bad-700", !it.grade_known && "border border-dashed border-current")} title={it.grade_known ? "Confirmed at inspection" : "Expected, not yet inspected"}>{({ A: "like new", B: "repair", C: "damaged" } as any)[it.expected_grade]}</span></td>
+                  <td className="py-2 text-center"><span className={clsx("inline-block rounded-sm px-1.5 py-0.5 text-[11px]", it.grade_known ? (it.expected_grade === "A" ? "bg-paper text-black" : it.expected_grade === "B" ? "bg-canvas text-ink-900" : "bg-bad-50 text-bad-700") : "border border-dashed border-line-strong text-ink-500")} title={it.grade_known ? "Checked by a person at the warehouse" : "Estimated from the return reason; must pass inspection before resale"}>{it.grade_known ? "inspected: " : "predicted: "}{({ A: "like new", B: "repair", C: "damaged" } as any)[it.expected_grade]}</span></td>
                   {detail && <td className="num py-2 text-right">{pct(it.p_grade_a)}</td>}
                   <td className="num py-2 text-right">{inr(it.value_if_fast)}</td>
                   <td className="num py-2 text-right">{inr(it.decay_per_day)}</td>

@@ -119,7 +119,7 @@ DEMO_USERS = [
     ("U-RAHUL", "Rahul Mehta", "ops_manager", "Reverse Logistics Operations Manager, West-zone hub (Bhiwandi)", None, 2500000),
     ("U-KAVYA", "Kavya Iyer", "vendor_quality_manager", "Vendor Quality Manager", None, 200000),
     ("U-SURESH", "Suresh Patil", "warehouse_manager", "Warehouse Manager, West zone", None, 150000),
-    ("U-NEHA", "Neha Kapoor", "dispute_reviewer", "Dispute Review Lead", None, 50000),
+    ("U-NEHA", "Neha Kapoor", "dispute_reviewer", "Customer Policy Lead (return policy and return checks)", None, 50000),
     ("U-VEN-V03", "Imran Shaikh", "vendor", "Seller account, Rangrez Textiles", "V03", 0),
     ("U-VEN-V07", "Hetal Shah", "vendor", "Seller account, Mehrang Ethnic", "V07", 0),
     ("U-VEN-V02", "Dhruv Ahir", "vendor", "Seller account, Kutch Craft Studio", "V02", 0),

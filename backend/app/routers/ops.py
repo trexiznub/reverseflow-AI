@@ -36,6 +36,8 @@ def rec_queue(limit: int = 200, db: Session = Depends(get_db), _: m.User = Depen
             "comparison": {"first_n": n, "value_priority_protected": round(sum(i["value_at_risk_7d"] for i in q[:n])),
                            "fifo_protected": round(sum(i["value_at_risk_7d"] for i in fifo[:n]))},
             "grade_mix": {g: sum(1 for i in q if i["expected_grade"] == g) for g in "ABC"},
+            "grade_inspected": {g: sum(1 for i in q if i["grade_known"] and i["expected_grade"] == g) for g in "ABC"},
+            "grade_predicted": {g: sum(1 for i in q if not i["grade_known"] and i["expected_grade"] == g) for g in "ABC"},
             "by_action": {a: sum(1 for i in q if {"A": "restock", "B": "refurbish", "C": "liquidate / RTV"}[i["expected_grade"]] == a) for a in ("restock", "refurbish", "liquidate / RTV")}}
 
 
@@ -49,13 +51,38 @@ def rec_curve(price: float = 7999, category: str = "Lehenga", days: int = 120, d
 
 
 # ---------------- Approvals ----------------
-def _rec_dict(r: m.Recommendation, logs: list | None = None) -> dict:
+SAP_STATE = {"waiting": "prepared for SAP, not sent (no SAP system connected)", "sent": "accepted by SAP", "failed": "SAP send failed"}
+
+
+def _rec_dict(r: m.Recommendation, logs: list | None = None, sap: list | None = None) -> dict:
     d = {k: getattr(r, k) for k in ("id", "run_id", "agent", "kind", "title", "rationale", "evidence", "entity_type", "entity_id", "impact_inr", "cost_inr",
                                     "confidence", "priority", "requires_approval", "approver_role", "status", "applied", "explanation_source")}
     d["created_at"], d["updated_at"] = r.created_at.isoformat(), r.updated_at.isoformat()
+    d["net_inr"] = round((r.impact_inr or 0) - (r.cost_inr or 0), 2)
     if logs is not None:
         d["decisions"] = [{"user": l.user_name, "role": l.role, "ts": l.ts.isoformat(), "action": l.action, "reason": l.reason,
                            "previous_status": l.previous_status, "new_status": l.new_status} for l in logs]
+    # Four separate stages, so a suggestion is never mistaken for a decision, or a decision for an SAP transaction.
+    last = (logs or [None])[-1] if logs else None
+    if r.status == "approved" and not r.requires_approval:
+        approval = {"state": "pre_authorised", "text": "Pre-authorised by policy (within the spending limit). No person approved it."}
+    elif r.status == "approved":
+        approval = {"state": "approved", "text": f"Approved by {last.user_name}" if last else "Approved"}
+    elif r.status == "rejected":
+        approval = {"state": "rejected", "text": f"Declined by {last.user_name}" if last else "Declined"}
+    elif r.status == "escalated":
+        approval = {"state": "escalated", "text": "Waiting for the Operations Manager (escalated)"}
+    else:
+        approval = {"state": "waiting", "text": "Waiting for a person to decide"}
+    if r.status != "approved":
+        execution = {"state": "not_started", "text": "Not carried out: needs approval first"}
+    elif sap:
+        execution = {"state": "sap_" + sap[0].status, "text": f"Applied in ReverseFlow; {SAP_STATE.get(sap[0].status, sap[0].status)}",
+                     "sap": [{"id": x.id, "system": x.system, "status": x.status} for x in sap]}
+    else:
+        execution = {"state": "applied" if r.applied else "not_started",
+                     "text": "Applied in ReverseFlow (no SAP system involved)" if r.applied else "Not carried out yet"}
+    d["stages"] = {"recommendation": {"state": "suggested", "text": f"Suggested by the {r.agent} agent"}, "approval": approval, "execution": execution}
     return d
 
 
@@ -70,9 +97,12 @@ def approvals(status: str | None = None, kind: str | None = None, db: Session = 
     logs = {}
     for l in db.scalars(select(m.DecisionLog).order_by(m.DecisionLog.ts)).all():
         logs.setdefault(l.recommendation_id, []).append(l)
+    sap = {}
+    for x in db.scalars(select(m.SapMessage).where(m.SapMessage.source_type == "recommendation")).all():
+        sap.setdefault(x.source_id, []).append(x)
     out = []
     for r in rows:
-        d = _rec_dict(r, logs.get(r.id, []))
+        d = _rec_dict(r, logs.get(r.id, []), sap.get(r.id))
         ok, why = actions.can_decide(user, r)
         d["can_decide"] = ok and r.status in ("pending", "escalated")
         d["decide_reason"] = why
@@ -80,6 +110,9 @@ def approvals(status: str | None = None, kind: str | None = None, db: Session = 
     counts = {}
     for r in rows:
         counts[r.status] = counts.get(r.status, 0) + 1
+    # "approved" covers two different things; keep them apart so nothing pre-authorised looks human-approved
+    counts["approved_by_person"] = sum(1 for r in rows if r.status == "approved" and r.requires_approval)
+    counts["pre_authorised"] = sum(1 for r in rows if r.status == "approved" and not r.requires_approval)
     return {"items": out, "counts": counts}
 
 

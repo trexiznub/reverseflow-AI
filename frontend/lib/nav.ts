@@ -43,7 +43,7 @@ export const ROLE_DOES: Record<string, string> = {
   ops_manager: "Runs the returns network. Approves vans, routing and spend.",
   vendor_quality_manager: "Finds sellers and products that cause returns, and approves fixes.",
   warehouse_manager: "Plans inspection shifts and gets items back on sale.",
-  dispute_reviewer: "Reviews returns that don't look right. Never refuses automatically.",
+  dispute_reviewer: "Owns return policy: size-swap offers and checks on returns that don't look right.",
   vendor: "Sees only their own products, returns and fix requests.",
   logistics: "Collects returns from customers and records the pickup.",
   warehouse: "Receives, inspects and grades returned items.",

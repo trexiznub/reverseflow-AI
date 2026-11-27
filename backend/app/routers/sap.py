@@ -30,7 +30,7 @@ def services(db: Session) -> list[dict]:
     s4_sandbox = not s4hana.configured() and s4hana.sandbox_enabled()
 
     def svc(sid, product, group, does, connect, needs, **extra):
-        return {"id": sid, "product": product, "group": group, "does": does, "connect": connect, "needs": needs,
+        return {"id": sid, "product": product, "group": group, "does": does, "connect": connect, "needs": needs, "maturity": "built",
                 **state.get(sid, {"state": "not_configured", "detail": None, "tested_at": None}), **extra}
 
     def system(sid, product, does, built):
@@ -38,7 +38,7 @@ def services(db: Session) -> list[dict]:
                    f"Set SAP_{sid.upper()}_URL (with SAP_{sid.upper()}_TOKEN_URL, _CLIENT_ID, _CLIENT_SECRET, or _USER/_PASSWORD), "
                    f"or bind the Destination service and create a destination named {destinations.destination_name(sid)}.",
                    f"A {product} tenant and an inbound API (usually through SAP Integration Suite).",
-                   messages=counts[sid], built=built)
+                   messages=counts[sid], built=built, maturity="unconfirmed")
 
     return [
         svc("btp", "SAP BTP, Cloud Foundry runtime", "Platform",
@@ -90,7 +90,7 @@ def services(db: Session) -> list[dict]:
                "Each approved van booking or warehouse change becomes a transportation request."),
         system("ariba", "SAP Ariba / SAP Business Network", "Quality holds and fix requests reach the seller in the supplier network they already use.",
                "Each approved quality hold, size-chart or listing fix becomes a quality notification for the seller."),
-        {"id": "integration_suite", "product": "SAP Integration Suite", "group": "Business systems", "state": "not_configured", "detail": None,
+        {"id": "integration_suite", "product": "SAP Integration Suite", "group": "Business systems", "state": "not_configured", "detail": None, "maturity": "proposed",
          "tested_at": None, "does": "Maps our JSON messages to each system's exact API (IBP planning data, TM freight units, Ariba cXML).",
          "connect": "Build one integration flow per system, then point SAP_IBP_URL, SAP_TM_URL and SAP_ARIBA_URL at them.",
          "needs": "SAP Integration Suite entitlement. The flows are not part of this project."},
@@ -112,6 +112,7 @@ def sap_status(db: Session = Depends(get_db), _: m.User = Depends(require("inter
     return {"auth_mode": auth_mode(), "on_cloud_foundry": btp.on_cloud_foundry(), "database": db.bind.dialect.name,
             "services": items, "outbox": outbox.summary(db), "groups": GROUPS_ORDER,
             "counts": {s: sum(1 for i in items if i["state"] == s) for s in STATES},
+            "maturity": {k: sum(1 for i in items if i.get("maturity") == k) for k in ("built", "unconfirmed", "proposed")},
             "links": {"launchpad": os.getenv("AI_LAUNCHPAD_URL"), "workzone": os.getenv("WORKZONE_SITE_URL"), "cap": os.getenv("CAP_URL")}}
 
 
@@ -175,6 +176,8 @@ def sap_send(msg_id: str, db: Session = Depends(get_db), user: m.User = Depends(
         raise HTTPException(404, "No such message")
     if msg.status == "sent":
         raise HTTPException(409, "Already sent")
+    if msg.status == "blocked":
+        raise HTTPException(409, "Blocked by the master data check: " + "; ".join((msg.response or {}).get("validation", [])))
     outbox.deliver(db, msg)
     actions.audit(db, user.name, "user", "sap.send", "sap_message", msg.id, {"status": msg.status, "system": msg.system})
     db.commit()
@@ -183,7 +186,7 @@ def sap_send(msg_id: str, db: Session = Depends(get_db), user: m.User = Depends(
 
 @router.post("/sap/outbox/send-waiting")
 def sap_send_waiting(db: Session = Depends(get_db), user: m.User = Depends(require("ops_manager"))):
-    msgs = db.scalars(select(m.SapMessage).where(m.SapMessage.status.in_(["waiting", "failed"]))).all()
+    msgs = [x for x in db.scalars(select(m.SapMessage).where(m.SapMessage.status.in_(["waiting", "failed"]))).all() if outbox.due(x)]
     for msg in msgs:
         outbox.deliver(db, msg)
     result = {s: sum(1 for x in msgs if x.status == s) for s in ("sent", "waiting", "failed")}

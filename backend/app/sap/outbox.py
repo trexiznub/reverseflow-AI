@@ -13,6 +13,17 @@ Each message is a self-contained JSON document. It is posted to the system's
 connection (see destinations.py). In a typical SAP landscape that endpoint is
 an SAP Integration Suite flow, which maps the document to the target API
 (IBP planning data API, TM freight unit / order APIs, Ariba cXML).
+
+Delivery rules:
+  * Master data is checked first (cities, warehouses, carriers, sellers, SKUs
+    must exist). A message that fails the check is "blocked" and never sent.
+  * One message per decision and system: approving or publishing the same thing
+    twice returns the existing message instead of creating a duplicate.
+  * Every send carries the message id as an Idempotency-Key header, so a
+    receiver can drop a repeat of a message it already processed.
+  * A 2xx answer counts as acknowledged; any id the receiver returns is kept.
+  * Network errors, 408, 429 and 5xx are retried with growing waits (1, 2, 4,
+    8 minutes), up to 5 attempts. Other 4xx answers are rejections: not retried.
 """
 from __future__ import annotations
 
@@ -27,6 +38,10 @@ from .. import models as m
 from . import destinations
 
 LABEL = {"ibp": "SAP Integrated Business Planning", "tm": "SAP Transportation Management", "ariba": "SAP Ariba / Business Network"}
+
+MAX_ATTEMPTS = 5
+TRANSIENT = {408, 429, 500, 502, 503, 504}
+STATUSES = ("waiting", "sent", "failed", "blocked")
 
 TM_KINDS = {"extra_pickup", "reroute"}
 ARIBA_KINDS = {"vendor_qc_hold", "pre_dispatch_qc", "size_chart_update", "listing_fix"}
@@ -99,17 +114,23 @@ def _ibp_recovered(db: Session, r: m.Recommendation, actor: str) -> tuple[str, d
     ev = r.evidence or {}
     D = st.scenario_date(db)
     days = 3 if r.kind == "rapid_restock" else 7
+    # Inspect-first items are not inspected yet: send the supply we expect after inspection (weighted by the
+    # chance each passes as like-new), in a separate key figure, never as confirmed stock.
+    expected = r.kind == "rapid_restock"
     rows = {}
     for it in ev.get("items", []):
         key = (it["sku"], it["facility_id"])
-        rows[key] = rows.get(key, 0) + 1
+        rows[key] = rows.get(key, 0) + (float(it.get("p_grade_a", 0)) if expected else 1)
+    kf = "EXPECTEDRECOVEREDSUPPLY" if expected else "RECOVEREDSUPPLY"
     doc = {**_envelope("ibp", "PlanningData", r.id, actor),
-           "planningArea": _planning_area(), "keyFigure": "RECOVEREDSUPPLY",
+           "planningArea": _planning_area(), "keyFigure": kf,
            "aggregationLevel": ["PRDID", "LOCID", "PERIODID_DAY"],
-           "rows": [{"PRDID": sku, "LOCID": loc, "PERIODID_DAY": (D + timedelta(days=days)).isoformat(), "RECOVEREDSUPPLY": n}
+           "rows": [{"PRDID": sku, "LOCID": loc, "PERIODID_DAY": (D + timedelta(days=days)).isoformat(), kf: round(n, 2)}
                     for (sku, loc), n in sorted(rows.items())]}
-    what = "fast-tracked" if r.kind == "rapid_restock" else "repaired"
-    return f"{sum(rows.values())} {what} items back in stock in {days} days", doc
+    if expected:
+        doc["note"] = "Expected supply, not confirmed: each item must pass inspection before it is stock."
+        return f"About {sum(rows.values()):.0f} items expected back in stock after inspection, in {days} days", doc
+    return f"{sum(rows.values()):.0f} repaired items back in stock in {days} days", doc
 
 
 def forecast_document(db: Session, actor: str) -> tuple[str, dict, str] | None:
@@ -134,13 +155,59 @@ def forecast_document(db: Session, actor: str) -> tuple[str, dict, str] | None:
     return f"Return forecast for {len(fc['clusters'])} cities, next {fc.get('horizon_days')} days", doc, source
 
 
+# ---------------- master data ----------------
+def validate(db: Session, doc: dict, r: m.Recommendation | None = None) -> list[str]:
+    """Check that every master-data reference in a message exists. Returns the problems found."""
+    problems = []
+
+    def need(model, key, what):
+        if key and not db.get(model, key):
+            problems.append(f"Unknown {what} '{key}'")
+
+    if r is not None:
+        ev = r.evidence or {}
+        if r.kind == "extra_pickup":
+            need(m.PinCluster, r.entity_id, "city cluster")
+            need(m.LogisticsProvider, ev.get("provider_id"), "carrier")
+        elif r.kind == "reroute":
+            need(m.PinCluster, ev.get("cluster_id"), "city cluster")
+            need(m.Facility, ev.get("facility_id"), "warehouse")
+        elif r.kind in ARIBA_KINDS:
+            need(m.Vendor, r.entity_id, "seller")
+            for sku in ev.get("skus", []):
+                p = db.get(m.Product, sku)
+                if not p:
+                    problems.append(f"Unknown SKU '{sku}'")
+                elif p.vendor_id != r.entity_id:
+                    problems.append(f"SKU '{sku}' belongs to seller {p.vendor_id}, not {r.entity_id}")
+        elif r.kind in IBP_KINDS:
+            for it in ev.get("items", []):
+                need(m.Product, it.get("sku"), "SKU")
+                need(m.Facility, it.get("facility_id"), "warehouse")
+    for row in doc.get("rows", []):  # IBP planning rows
+        if row.get("CUSTID"):
+            need(m.PinCluster, row["CUSTID"], "city cluster")
+    return sorted(set(problems))
+
+
 # ---------------- outbox ----------------
-def _add(db: Session, system: str, kind: str, title: str, doc: dict, source_type: str, source_id: str, actor: str) -> m.SapMessage:
+def _add(db: Session, system: str, kind: str, title: str, doc: dict, source_type: str, source_id: str, actor: str,
+         problems: list[str] | None = None) -> m.SapMessage:
+    # Duplicate prevention: one live message per (system, kind, source).
+    existing = db.scalars(select(m.SapMessage).where(m.SapMessage.system == system, m.SapMessage.kind == kind,
+                                                     m.SapMessage.source_type == source_type, m.SapMessage.source_id == source_id,
+                                                     m.SapMessage.status.in_(["waiting", "sent", "failed", "blocked"]))).first()
+    if existing:
+        existing.response = {**(existing.response or {}), "duplicate_prevented_at": datetime.now().isoformat(timespec="seconds")}
+        return existing
     mid = _id()
     doc["messageId"] = mid
+    blocked = bool(problems)
     msg = m.SapMessage(id=mid, created_at=datetime.now(), system=system, kind=kind, title=title[:200], source_type=source_type,
-                       source_id=source_id, created_by=actor, payload=doc, status="waiting", attempts=0, response={})
+                       source_id=source_id, created_by=actor, payload=doc, status="blocked" if blocked else "waiting", attempts=0,
+                       response={"validation": problems, "note": "Blocked: master data check failed, so it will not be sent."} if blocked else {})
     db.add(msg)
+    db.flush()
     return msg
 
 
@@ -159,9 +226,9 @@ def from_recommendation(db: Session, r: m.Recommendation, actor: str) -> list[m.
         out = _ibp_recovered(db, r, actor)
         if out:
             built.append(("ibp", *out))
-    msgs = [_add(db, system, r.kind, title, doc, "recommendation", r.id, actor) for system, title, doc in built]
+    msgs = [_add(db, system, r.kind, title, doc, "recommendation", r.id, actor, validate(db, doc, r)) for system, title, doc in built]
     for msg in msgs:
-        if destinations.configured(msg.system):
+        if msg.status == "waiting" and destinations.configured(msg.system):
             deliver(db, msg)
     return msgs
 
@@ -171,33 +238,68 @@ def publish_forecast(db: Session, actor: str) -> m.SapMessage | None:
     if not out:
         return None
     title, doc, source = out
-    msg = _add(db, "ibp", "return_forecast", title, doc, "forecast", source, actor)
-    if destinations.configured("ibp"):
+    msg = _add(db, "ibp", "return_forecast", title, doc, "forecast", source, actor, validate(db, doc))
+    if msg.status == "waiting" and destinations.configured("ibp"):
         deliver(db, msg)
     return msg
+
+
+def _retry(msg: m.SapMessage, info: dict) -> None:
+    """Schedule another attempt with a growing wait, or give up after MAX_ATTEMPTS."""
+    if msg.attempts >= MAX_ATTEMPTS:
+        msg.response = {**info, "retryable": False, "note": f"Gave up after {msg.attempts} attempts."}
+    else:
+        wait = 2 ** (msg.attempts - 1)
+        msg.response = {**info, "retryable": True, "retry_after": (datetime.now() + timedelta(minutes=wait)).isoformat(timespec="seconds")}
+    msg.status = "failed"
+
+
+def due(msg: m.SapMessage) -> bool:
+    """Whether a message should be (re)sent now."""
+    if msg.status == "waiting":
+        return True
+    if msg.status != "failed" or not (msg.response or {}).get("retryable"):
+        return False
+    after = (msg.response or {}).get("retry_after")
+    return not after or datetime.fromisoformat(after) <= datetime.now()
 
 
 def deliver(db: Session, msg: m.SapMessage) -> m.SapMessage:
     """Send one message. Without a connection it stays 'waiting' and nothing leaves the app."""
     from . import btp
-    msg.attempts += 1
-    msg.last_attempt_at = datetime.now()
+    if msg.status in ("sent", "blocked"):
+        return msg  # never send twice, never send what failed the master-data check
     try:
         conn = destinations.resolve(msg.system)
     except Exception as e:  # sign-in to the destination failed
-        msg.status, msg.response = "failed", {"error": f"Could not sign in: {type(e).__name__}: {e}"}
+        msg.attempts += 1
+        msg.last_attempt_at = datetime.now()
+        _retry(msg, {"error": f"Could not sign in: {type(e).__name__}: {e}"})
         return msg
     if not conn:
         msg.status, msg.response = "waiting", {"note": f"{LABEL[msg.system]} is not connected, so nothing was sent."}
         return msg
+    msg.attempts += 1
+    msg.last_attempt_at = datetime.now()
     msg.target = conn.url[:300]
+    headers = {**conn.headers, "Idempotency-Key": msg.id, "X-ReverseFlow-Message-Id": msg.id}
     try:
-        code, body = btp.http_json("POST", conn.url, msg.payload, headers=conn.headers)
-    except Exception as e:  # network
-        msg.status, msg.response = "failed", {"error": f"{type(e).__name__}: {e}", "via": conn.source}
+        code, body = btp.http_json("POST", conn.url, msg.payload, headers=headers)
+    except Exception as e:  # network: worth retrying
+        _retry(msg, {"error": f"{type(e).__name__}: {e}", "via": conn.source})
         return msg
-    msg.status = "sent" if 200 <= code < 300 else "failed"
-    msg.response = {"http_status": code, "body": body if isinstance(body, dict) else {"text": str(body)[:2000]}, "via": conn.source}
+    info = {"http_status": code, "body": body if isinstance(body, dict) else {"text": str(body)[:2000]}, "via": conn.source}
+    if 200 <= code < 300:
+        b = body if isinstance(body, dict) else {}
+        ack = next((b[k] for k in ("messageId", "MessageGuid", "id", "ID", "documentId") if b.get(k)), None)
+        msg.status = "sent"
+        msg.response = {**info, "acknowledged_at": datetime.now().isoformat(timespec="seconds"), "ack_id": ack,
+                        "test_receiver": "test receiver" in str(b.get("note", "")).lower()}
+    elif code in TRANSIENT:
+        _retry(msg, info)
+    else:
+        msg.status = "failed"
+        msg.response = {**info, "retryable": False, "note": "Rejected by the receiver; fix the cause and resend by hand."}
     return msg
 
 
@@ -205,7 +307,7 @@ def summary(db: Session) -> dict:
     out = {}
     for s in destinations.SYSTEMS:
         rows = db.scalars(select(m.SapMessage.status).where(m.SapMessage.system == s)).all()
-        out[s] = {st: rows.count(st) for st in ("waiting", "sent", "failed")}
+        out[s] = {st: rows.count(st) for st in STATUSES}
     return out
 
 
@@ -214,7 +316,7 @@ def as_dict(msg: m.SapMessage, full: bool = False) -> dict:
          "kind": msg.kind, "title": msg.title, "source_type": msg.source_type, "source_id": msg.source_id, "created_by": msg.created_by,
          "status": msg.status, "attempts": msg.attempts, "target": msg.target,
          "last_attempt_at": msg.last_attempt_at.isoformat(timespec="seconds") if msg.last_attempt_at else None,
-         "response": msg.response or {}}
+         "response": msg.response or {}, "test_receiver": bool((msg.response or {}).get("test_receiver"))}
     if full:
         d["payload"] = msg.payload
     return d

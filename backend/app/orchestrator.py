@@ -67,8 +67,13 @@ def detect_conflicts(ctx: AgentContext) -> list[dict]:
     hit = [i for i in fast if i["vendor_id"] in qc]
     if hit:
         out.append({"type": "restock_vs_quality_hold", "agents": ["recovery", "prevention"],
-                    "description": f"{len(hit)} fast-track restock items come from vendors proposed for QC action ({', '.join(sorted({i['vendor_id'] for i in hit}))}).",
-                    "resolution": "Fast-track is kept, but these items get an enhanced stitching inspection before restock; the fast-track decision is routed to a human.",
+                    "title": "Resell fast, or check the seller's quality first?",
+                    "a_wants": f"Inventory Recovery wants {len(fast)} valuable festive items inspected first so they go back on sale quickly.",
+                    "b_wants": f"Prevention wants a quality check on sellers {', '.join(sorted({i['vendor_id'] for i in hit}))}, and {len(hit)} of those items come from them.",
+                    "why": "Speed could put items from a seller with a known stitching problem back on sale.",
+                    "description": f"{len(hit)} inspect-first items come from sellers proposed for a quality check ({', '.join(sorted({i['vendor_id'] for i in hit}))}).",
+                    "resolution": "Those items stay at the front of the queue but get a closer stitching check before resale, and the inspect-first plan goes to a person instead of being pre-authorised.",
+                    "decided_by": "Warehouse Manager",
                     "entities": ["festive-grade-a"], "items": [i["return_id"] for i in hit][:20]})
     recs = ctx.state.get("_all_recs", [])
     ex = [r for r in recs if r["kind"] == "exchange_first"]
@@ -76,6 +81,11 @@ def detect_conflicts(ctx: AgentContext) -> list[dict]:
     tight = [g for g in gaps.values() if g["pickup_gap"] > 0]
     if ex and tight:
         out.append({"type": "exchange_first_vs_pickup_capacity", "agents": ["prevention", "logistics"],
+                    "title": "Offer size swaps, or protect scarce pickup vans?",
+                    "a_wants": "Prevention wants customers offered a different size before a refund, to keep the sale.",
+                    "b_wants": f"Reverse Logistics sees {len(tight)} cities already short of pickup vans ({', '.join(g['city'] for g in tight)}).",
+                    "why": "Every swap needs a delivery and a pickup, which adds load to vans that are already short.",
+                    "decided_by": "Customer Policy Lead",
                     "description": f"Exchange-first creates an outbound delivery plus a reverse pickup per exchange, while {len(tight)} clusters already lack pickup capacity "
                                    f"({', '.join(g['city'] for g in tight)}).",
                     "resolution": "Approve exchange-first together with the extra-pickup bookings for the affected clusters, or defer exchange-first until after the peak.",
@@ -84,6 +94,11 @@ def detect_conflicts(ctx: AgentContext) -> list[dict]:
     if rr and fast:
         decay = sum(i["decay_per_day"] for i in fast) / max(len(fast), 1)
         out.append({"type": "reroute_vs_recovery_speed", "agents": ["logistics", "recovery"],
+                    "title": "Send returns to another warehouse, or keep valuable ones close?",
+                    "a_wants": "Reverse Logistics wants part of a busy city's returns sent to a less busy warehouse.",
+                    "b_wants": "Inventory Recovery wants valuable festive items resold as fast as possible.",
+                    "why": f"The longer trip adds a day, which costs about ₹{decay:,.0f} of resale value per valuable item.",
+                    "decided_by": "Operations Manager",
                     "description": f"Re-routing adds one transit day for diverted units; for likely Grade-A festive stock that costs about INR {decay:,.0f} per item.",
                     "resolution": "Divert non-festive and likely Grade-B/C returns first; keep likely Grade-A festive items at the default facility.",
                     "entities": [r["entity_id"] for r in rr]})

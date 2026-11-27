@@ -65,8 +65,11 @@ class InventoryRecoveryAgent(Agent):
             value = sum(i["value_if_fast"] for i in top_fast)
             decay = sum(i["decay_per_day"] for i in top_fast)
             txt, src = llm.explain("restock", dict(n=len(top_fast), value=value, decay=decay), provider)
-            recs.append(rec("rapid_restock", f"Put {len(top_fast)} like-new festive items back on sale within 3 days", txt,
-                            {"items": [{k: i[k] for k in ("return_id", "sku", "name", "facility_id", "value_if_fast", "value_at_risk_7d", "p_grade_a")} for i in top_fast],
+            not_inspected = sum(1 for i in top_fast if not i["grade_known"])
+            recs.append(rec("rapid_restock", f"Inspect {len(top_fast)} festive items first: they are probably like new", txt,
+                            {"items": [{k: i[k] for k in ("return_id", "sku", "name", "facility_id", "value_if_fast", "value_at_risk_7d", "p_grade_a", "grade_known")} for i in top_fast],
+                             "not_yet_inspected": not_inspected,
+                             "condition_basis": "Predicted from the return reason and past inspections, not seen yet. Nothing goes back on sale until it passes inspection.",
                              "method": "Sorted by value lost if delayed 7 days (Resale Window Intelligence)"},
                             "queue", "festive-grade-a", impact=sum(i["value_at_risk_7d"] for i in top_fast), cost=0, confidence=0.72,
                             priority="high", source=src))

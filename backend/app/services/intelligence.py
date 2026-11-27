@@ -60,6 +60,7 @@ def findings(db: Session, scenario_date: date, window_days: int = 90) -> dict:
             out_vendor.append({
                 "vendor_id": vid, "vendor_name": g.vendor_name.iloc[0], "reason": reason, "reason_label": REASONS[reason],
                 "returns": int(k), "vendor_returns": int(n), "share": round(k / n, 4), "network_share": round(float(p0), 4),
+                "others_returns": int(len(rest)), "others_with_reason": int((rest.reason == reason).sum()),
                 "z": round(z, 2), "top_skus": [{"sku": s, "name": nm, "returns": int(c)} for (s, nm), c in top.items()],
                 "sizes": {s: int(c) for s, c in sizes.items()},
                 "avg_sentiment": round(float(g.sentiment.mean()), 3) if g.sentiment.notna().any() else None,

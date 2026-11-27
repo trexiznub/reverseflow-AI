@@ -112,10 +112,14 @@ export default function Governance() {
         right={<div className="text-right text-[12.5px] text-ink-500">You can approve up to<div className="display-num mt-1 text-[28px] text-ink-900">{inr(meta?.user?.approval_limit, true)}</div></div>} />
 
       <div className="grid grid-cols-2 border-y border-line md:grid-cols-4">
-        {[["Waiting", (c.pending || 0), "warn"], ["Sent to senior", (c.escalated || 0), c.escalated ? "bad" : ""], ["Approved", (c.approved || 0), "ok"], ["Declined", (c.rejected || 0), ""]].map(([l, v, t], i) => (
+        {[["Waiting for a person", (c.pending || 0) + (c.escalated || 0), "warn", c.escalated ? `${c.escalated} escalated to the Operations Manager` : "Nothing happens until someone decides"],
+          ["Approved by a person", (c.approved_by_person || 0), "ok", "A named person approved, with a reason"],
+          ["Pre-authorised", (c.pre_authorised || 0), "", "Within the policy spending limit. No person approved these"],
+          ["Declined", (c.rejected || 0), "", "Turned down by a person, with a reason"]].map(([l, v, t, sub], i) => (
           <div key={l as string} className={clsx("px-1 py-5 sm:px-5", i > 0 && "md:border-l border-line", i % 2 === 1 && "border-l", i >= 2 && "border-t md:border-t-0")}>
             <div className={clsx("display-num text-[40px]", t === "warn" && "text-warn-700", t === "bad" && "text-bad-700", t === "ok" && "text-ok-700")}>{num(v as number)}</div>
             <div className="label mt-3">{l}</div>
+            <div className="mt-1 text-[11.5px] leading-snug text-ink-500">{sub}</div>
           </div>
         ))}
       </div>
@@ -147,8 +151,8 @@ export default function Governance() {
                     <div className="mt-1.5 text-[15px] font-semibold leading-snug group-hover:underline group-hover:decoration-ink-500 group-hover:underline-offset-4">{r.title}</div>
                   </div>
                   <div className="hidden text-[12.5px] text-ink-500 md:block">
-                    {r.impact_inr ? <div>Protects <span className="num text-ink-900">{inr(r.impact_inr, true)}</span></div> : null}
-                    <div>{r.cost_inr ? <>Costs <span className="num text-ink-900">{inr(r.cost_inr, true)}</span></> : "No extra cost"}</div>
+                    <div>Benefit <span className="num text-ink-900">{r.impact_inr ? inr(r.impact_inr, true) : "—"}</span> · Cost <span className="num text-ink-900">{r.cost_inr ? inr(r.cost_inr, true) : "₹0"}</span></div>
+                    {(r.impact_inr || r.cost_inr) ? <div>Net <span className={clsx("num font-medium", r.net_inr >= 0 ? "text-ok-700" : "text-bad-700")}>{r.net_inr >= 0 ? "+" : "−"}{inr(Math.abs(r.net_inr), true)}</span></div> : <div>No money involved</div>}
                   </div>
                   <ArrowRight className="h-4 w-4 text-ink-400 group-hover:text-ink-900" />
                 </button>
@@ -190,7 +194,7 @@ export default function Governance() {
                 <button key={r.id} onClick={() => setOpen(r)} className="grid w-full grid-cols-[1fr_auto] gap-4 border-b border-line py-4 text-left hover:bg-canvas md:grid-cols-[1fr_1fr_auto]">
                   <div><div className="label">{KIND_LABEL[r.kind]}</div><div className="mt-1 text-[14px] font-medium">{r.title}</div></div>
                   <div className="hidden text-[12.5px] text-ink-500 md:block">“{last?.reason}”<div className="mt-0.5 text-[11.5px] text-ink-400">{last?.user} · {dayTime(last?.ts)}</div></div>
-                  <div className="flex flex-col items-end gap-1"><Badge tone={statusTone(r.status)}>{statusText(r.status)}</Badge>{r.applied && <span className="text-[11px] text-ok-700">in effect</span>}</div>
+                  <div className="flex flex-col items-end gap-1"><Badge tone={r.status === "approved" && !r.requires_approval ? "warn" : statusTone(r.status)}>{r.status === "approved" && !r.requires_approval ? "pre-authorised" : statusText(r.status)}</Badge>{r.applied && <span className="text-[11px] text-ok-700">applied in ReverseFlow</span>}</div>
                 </button>
               );
             })}
@@ -222,7 +226,7 @@ export default function Governance() {
       {tab === "policy" && (pol.error ? <ErrorState error={pol.error} /> : !pol.data ? <Loading rows={1} /> : (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <Card className="xl:col-span-2">
-            <CardHead title="Who approves each kind of action" sub={`Small logistics actions up to ${inr(pol.data.auto_approve_limit_inr)} go ahead on their own, unless two agents disagree. Everything else needs a person.`} />
+            <CardHead title="Who approves each kind of action" sub={`Small logistics actions up to ${inr(pol.data.auto_approve_limit_inr)} are pre-authorised by policy, unless two agents disagree. Everything else needs a person from the team that owns it; only escalations go to the Operations Manager.`} />
             <table className="w-full text-[13px]">
               <thead><tr className="label text-left"><th className="pb-2 font-normal">Action</th><th className="pb-2 font-normal">Needs a person?</th><th className="pb-2 font-normal">Who</th></tr></thead>
               <tbody>{pol.data.rules.map((r: any) => (
@@ -249,7 +253,7 @@ export default function Governance() {
         {open && (
           <div className="space-y-6">
             <div className="flex flex-wrap gap-1.5">
-              <Badge tone={statusTone(open.status)}>{statusText(open.status)}</Badge>
+              <Badge tone={open.status === "approved" && !open.requires_approval ? "warn" : statusTone(open.status)}>{open.status === "approved" && !open.requires_approval ? "pre-authorised by policy" : statusText(open.status)}</Badge>
               <Badge>Suggested by the {AGENT_LABEL[open.agent]}</Badge>
               <Badge>Approver: {ROLE_LABEL[open.approver_role]}</Badge>
             </div>
@@ -257,16 +261,27 @@ export default function Governance() {
               <div className="label mb-2">Why this is suggested</div>
               <p className="text-[14.5px] leading-relaxed text-ink-900">{open.rationale}</p>
             </div>
-            <div className="grid grid-cols-3 border-y border-line">
-              <div className="py-3 pr-3"><div className="label">Protects</div><div className="display-num mt-2 text-[22px]">{inr(open.impact_inr, true)}</div></div>
-              <div className="border-l border-line py-3 pl-3 pr-3"><div className="label">Costs</div><div className="display-num mt-2 text-[22px]">{open.cost_inr ? inr(open.cost_inr, true) : "—"}</div></div>
+            {open.stages && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {[["1 · Suggestion", open.stages.recommendation], ["2 · Approval", open.stages.approval], ["3 · Carried out", open.stages.execution]].map(([l, st]: any) => (
+                  <div key={l} className={clsx("rounded-md border p-2.5", st.state === "approved" || st.state === "applied" || st.state === "sap_sent" ? "border-[#1D3D2B]" : st.state === "pre_authorised" || st.state === "sap_waiting" ? "border-[#4A3A17]" : st.state === "sap_failed" || st.state === "rejected" ? "border-[#4A2620]" : "border-line")}>
+                    <div className="label">{l}</div>
+                    <div className="mt-1 text-[12px] leading-snug text-ink-700">{st.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="grid grid-cols-4 border-y border-line">
+              <div className="py-3 pr-3"><div className="label">Benefit</div><div className="display-num mt-2 text-[22px]">{open.impact_inr ? inr(open.impact_inr, true) : "—"}</div></div>
+              <div className="border-l border-line py-3 pl-3 pr-3"><div className="label">Cost</div><div className="display-num mt-2 text-[22px]">{open.cost_inr ? inr(open.cost_inr, true) : "₹0"}</div></div>
+              <div className="border-l border-line py-3 pl-3 pr-3"><div className="label">Net</div><div className={clsx("display-num mt-2 text-[22px]", open.net_inr >= 0 ? "text-ok-700" : "text-bad-700")}>{(open.impact_inr || open.cost_inr) ? `${open.net_inr >= 0 ? "+" : "−"}${inr(Math.abs(open.net_inr), true)}` : "—"}</div></div>
               <div className="border-l border-line py-3 pl-3"><div className="label flex items-center gap-1">How sure <Hint text="How confident the agent is, based on how much data supports this and how consistent it is." /></div><div className="mt-2 text-[15px] font-semibold">{confidenceWords(open.confidence)}</div><DetailOnly><div className="num text-[11px] text-ink-500">{pct(open.confidence)}</div></DetailOnly></div>
             </div>
             <div><div className="label mb-2">The evidence</div><Evidence r={open} /></div>
 
             {["pending", "escalated"].includes(open.status) && (
               <div className="rounded border border-line-strong p-4">
-                {open.can_decide === false && <div className="mb-3 text-[13px] text-warn-700">{open.decide_reason || "This one needs a different approver."} Switch person from the top-right menu.</div>}
+                {open.can_decide === false && <div className="mb-3 text-[13px] text-warn-700">{open.decide_reason || "This one needs a different approver."} Each team approves its own kind of action. In the demo, switch person from the menu.</div>}
                 <Field label="Your reason" hint="Saved with your decision so others can see why.">
                   <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className={clsx(inputCls, "h-auto py-2")} placeholder="Type a reason, or pick one below" />
                 </Field>
@@ -288,7 +303,7 @@ export default function Governance() {
               {(open.decisions || []).length === 0 ? <div className="text-[13px] text-ink-500">No one has decided yet.</div> : (
                 <ol className="space-y-2.5 border-l border-line-strong pl-4">
                   {open.decisions.map((d: any, i: number) => (
-                    <li key={i} className="text-[13px]"><div><b>{d.user}</b> <span className="text-ink-500">({ROLE_LABEL[d.role] || d.role})</span> {d.action === "approve" ? "approved" : d.action === "reject" ? "declined" : d.action === "escalate" ? "sent it to a senior" : d.action}</div>
+                    <li key={i} className="text-[13px]"><div><b>{d.user}</b> <span className="text-ink-500">({ROLE_LABEL[d.role] || d.role})</span> {d.action === "approve" ? "approved" : d.action === "reject" ? "declined" : d.action === "escalate" ? "sent it to a senior" : d.action === "auto_approve" ? "pre-authorised it under the spending-limit policy (no person approved)" : d.action}</div>
                       <div className="text-[12px] text-ink-500">{dayTime(d.ts)} · “{d.reason}”</div></li>
                   ))}
                 </ol>

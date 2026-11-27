@@ -15,10 +15,18 @@ const STATE: Record<string, { label: string; tone: any }> = {
   no_entitlement: { label: "Missing entitlement", tone: "warn" },
   failed: { label: "Connection failed", tone: "bad" },
 };
+// Prepared messages are not SAP transactions. Only "Accepted by SAP" means a real SAP system acknowledged one.
 const MSG: Record<string, { label: string; tone: any }> = {
-  waiting: { label: "Waiting for SAP", tone: "warn" },
-  sent: { label: "Sent", tone: "ok" },
-  failed: { label: "Failed", tone: "bad" },
+  waiting: { label: "Prepared, not sent", tone: "warn" },
+  sent: { label: "Accepted by SAP", tone: "ok" },
+  failed: { label: "Send failed", tone: "bad" },
+  blocked: { label: "Blocked: master data", tone: "bad" },
+};
+const msgState = (x: any) => (x.status === "sent" && x.test_receiver ? { label: "Test receiver only", tone: "warn" } : MSG[x.status] || { label: x.status, tone: "neutral" });
+const MATURITY: Record<string, { label: string; tone: any; hint: string }> = {
+  built: { label: "Built", tone: "neutral", hint: "Working code in this project" },
+  unconfirmed: { label: "Built, format unconfirmed", tone: "warn", hint: "Code works; the message format still has to be confirmed with a real tenant" },
+  proposed: { label: "Proposed", tone: "neutral", hint: "Design only; not built in this project" },
 };
 const SYS = { ibp: "IBP", tm: "TM", ariba: "Ariba" } as Record<string, string>;
 
@@ -28,7 +36,10 @@ function ServiceCard({ s }: { s: any }) {
     <Card className="flex flex-col">
       <div className="flex items-start justify-between gap-3">
         <div className="text-[15px] font-semibold leading-snug tracking-tight">{s.product}</div>
-        <Badge tone={st.tone} dot>{st.label}</Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Badge tone={st.tone} dot>{st.label}</Badge>
+          {s.maturity && s.maturity !== "built" && <span title={MATURITY[s.maturity]?.hint}><Badge tone={MATURITY[s.maturity]?.tone}>{MATURITY[s.maturity]?.label}</Badge></span>}
+        </div>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-700">{s.does}</p>
       <div className="mt-3 space-y-1.5 border-t border-dashed border-line pt-3 text-[12.5px] leading-relaxed text-ink-500">
@@ -135,7 +146,7 @@ export default function SapPage() {
         { label: "Connected", value: c.connected, sub: "Reached by the last connection test", tone: c.connected ? "ok" : undefined },
         { label: "Configured, not tested", value: c.configured, sub: "Set up; press Test connections to check", tone: c.configured ? "warn" : undefined },
         { label: "Failed or no entitlement", value: c.failed + c.no_entitlement, sub: "Set up, but the test did not get through", tone: c.failed + c.no_entitlement ? "bad" : undefined },
-        { label: "Not configured", value: c.not_configured, sub: "Code is ready; the SAP service is not set up yet" },
+        { label: "Not configured", value: c.not_configured, sub: `${d.maturity?.proposed ?? 0} of them proposed only, ${d.maturity?.unconfirmed ?? 0} built with formats still to confirm` },
       ]} />
 
       <p className="max-w-3xl text-[13px] leading-relaxed text-ink-500">
@@ -166,6 +177,11 @@ export default function SapPage() {
           <Button size="sm" loading={busy === "all"} onClick={() => act("all", () => post("/sap/outbox/send-waiting"),
             (r) => r.sent ? `${r.sent} sent.` : "Nothing was sent: no SAP system is connected yet.")}>Try sending all waiting</Button>
         )}>
+        {Object.values(ob).every((x: any) => !x.sent) && (
+          <div className="max-w-3xl rounded-md border border-[#4A3A17] bg-warn-50 px-3.5 py-2.5 text-[13px] text-warn-700">
+            No SAP system has accepted any of these messages. They are prepared documents, not SAP transactions, and nothing has been executed in SAP.
+          </div>
+        )}
         <p className="max-w-3xl text-[13.5px] leading-relaxed text-ink-500">
           When someone approves a decision that another SAP system carries out, the app writes the message for that system here.
           Van bookings and warehouse changes go to TM, seller quality issues to Ariba, and forecasts and recovered stock to IBP.
@@ -184,7 +200,7 @@ export default function SapPage() {
                 <span className="label w-12 shrink-0 text-ink-900">{SYS[x.system]}</span>
                 <span className="min-w-0 flex-1 text-[13.5px] font-medium text-ink-900">{x.title}</span>
                 <span className="text-[12px] text-ink-500">{x.created_by} · {dayTime(x.created_at)}</span>
-                <Badge tone={MSG[x.status]?.tone} dot>{MSG[x.status]?.label || x.status}</Badge>
+                <Badge tone={msgState(x).tone} dot>{msgState(x).label}</Badge>
               </button>
             ))}
           </Card>
@@ -195,7 +211,7 @@ export default function SapPage() {
         {msg.error ? <ErrorState error={msg.error} /> : !msg.data ? <Loading rows={1} /> : (
           <div className="space-y-5">
             <div className="flex items-center gap-2">
-              <Badge tone={MSG[msg.data.status]?.tone} dot>{MSG[msg.data.status]?.label}</Badge>
+              <Badge tone={msgState(msg.data).tone} dot>{msgState(msg.data).label}</Badge>
               <span className="text-[12.5px] text-ink-500">for {msg.data.system_label}</span>
             </div>
             <div>
@@ -205,12 +221,19 @@ export default function SapPage() {
               <KV k="Send attempts" v={msg.data.attempts} />
               {msg.data.target && <KV k="Sent to" v={<span className="font-mono text-[11.5px]">{msg.data.target}</span>} />}
             </div>
+            {msg.data.response?.validation?.length > 0 && (
+              <div className="rounded border border-[#4A2620] bg-bad-50 p-3 text-[12.5px] text-bad-700">
+                Master data check failed: {msg.data.response.validation.join("; ")}
+              </div>
+            )}
+            {msg.data.response?.ack_id && <KV k="SAP acknowledgement" v={<span className="font-mono text-[11.5px]">{msg.data.response.ack_id}</span>} />}
+            {msg.data.response?.retry_after && <KV k="Next automatic retry" v={dayTime(msg.data.response.retry_after)} />}
             {(msg.data.response?.note || msg.data.response?.error) && (
               <div className={clsx("rounded border p-3 text-[12.5px]", msg.data.status === "failed" ? "border-[#4A2620] bg-bad-50 text-bad-700" : "border-line bg-canvas text-ink-700")}>
                 {msg.data.response.note || msg.data.response.error}
               </div>
             )}
-            {isOps && msg.data.status !== "sent" && (
+            {isOps && !["sent", "blocked"].includes(msg.data.status) && (
               <Button variant="primary" loading={busy === "one"} onClick={() => act("one", () => post(`/sap/outbox/${open}/send`),
                 (r) => r.status === "sent" ? "Sent." : r.status === "failed" ? "Sending failed. See the reply below." : "Not sent: this SAP system isn't connected yet.")}>
                 <Send className="h-3.5 w-3.5" />Send now

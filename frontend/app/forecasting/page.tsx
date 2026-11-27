@@ -54,8 +54,8 @@ export default function Forecasting() {
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Forecast · next 7 days" title="How many returns are coming"
-        sub={<>A prediction of returns for each city, day by day, based on past festive seasons and this year's orders. Pick a city to see its curve. It was tested on last year's Navratri and got closer than simply copying last year.</>}
-        right={<SyntheticTag />} />
+        sub={<>A prediction of returns for each city, day by day, based on past festive seasons and this year's orders. Pick a city to see its curve. Tested on last year's festive season (synthetic history): its daily error was {pct(data.evaluations[0].daily_cluster.ml.wape, 1)} (WAPE) against {pct(data.evaluations[0].daily_cluster.baseline.wape, 1)} for a simple baseline, and {pct(data.evaluations[0].weekly_cluster.ml.wape, 1)} against {pct(data.evaluations[0].weekly_cluster.baseline.wape, 1)} on weekly totals. Lower is better.</>}
+        right={<SyntheticTag text="Synthetic history" />} />
 
       {data.surge_alerts.length > 0 && (
         <Card className="border-[#4A2620] bg-bad-50/40">
@@ -157,16 +157,16 @@ export default function Forecasting() {
                 <Tooltip content={<ChartTooltip />} />
                 <Area dataKey="band" name="Likely range" fill={C.band} stroke="none" isAnimationActive={false} />
                 <Line dataKey="actual" name="Actual" stroke={C.navy} strokeWidth={1.4} dot={false} isAnimationActive={false} />
-                <Line dataKey="baseline" name="Simple guess (copy last year)" stroke={C.amber} strokeWidth={1.3} dot={false} isAnimationActive={false} />
+                <Line dataKey="baseline" name="Simple baseline (same weekday, last 4 weeks)" stroke={C.amber} strokeWidth={1.3} dot={false} isAnimationActive={false} />
                 <Line dataKey="ml" name="Our forecast" stroke={C.blue} strokeWidth={1.8} dot={false} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         </Card>
         <Card>
-          <CardHead label="Accuracy" title="Our forecast vs a simple guess" sub="Lower is better, except the last row" />
+          <CardHead label="Accuracy" title="Our forecast vs a simple baseline" sub="Baseline: average of the same weekday over the last 4 weeks. Lower is better, except the last row." />
           <table className="w-full text-[12.5px]">
-            <thead><tr className="label"><th className="pb-1.5 text-left font-normal">Measure</th><th className="pb-1.5 text-right font-normal">Simple guess</th><th className="pb-1.5 text-right font-normal">Ours</th></tr></thead>
+            <thead><tr className="label"><th className="pb-1.5 text-left font-normal">Measure</th><th className="pb-1.5 text-right font-normal">Baseline</th><th className="pb-1.5 text-right font-normal">Ours</th></tr></thead>
             <tbody>
               {rows.map(([l, k, f]) => (
                 <tr key={k} className="border-t border-line">
