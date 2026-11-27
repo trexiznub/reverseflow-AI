@@ -30,7 +30,7 @@ const config: Config = {
         display: ["var(--font-display)", "var(--font-sans)", "sans-serif"],
       },
       fontSize: { "2xs": ["10.5px", "14px"] },
-      borderRadius: { DEFAULT: "4px", md: "6px" },
+      borderRadius: { DEFAULT: "5px", md: "7px", lg: "10px", xl: "14px" },
       boxShadow: { pop: "0 18px 50px -12px rgba(0,0,0,.8), 0 0 0 1px #2A2A2A" },
       keyframes: {
         dash: { to: { strokeDashoffset: "-24" } },

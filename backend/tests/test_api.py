@@ -402,3 +402,8 @@ def test_test_receivers_never_count_as_connected(client, monkeypatch):
     by = {s["id"]: s for s in client.post("/api/sap/status/test", headers=OPS).json()["services"]}
     assert by["s4"]["state"] == "configured" and "test sandbox" in by["s4"]["detail"]
     health.clear()
+
+
+def test_sap_overview_is_public_and_minimal(client):
+    r = client.get("/api/sap/overview").json()
+    assert r["services"] and set(r["services"][0]) == {"id", "product", "group", "state", "sandbox"}

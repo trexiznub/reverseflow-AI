@@ -1,8 +1,12 @@
 "use client";
 import clsx from "clsx";
-import { ArrowRight, ArrowUpRight, Check, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpRight, Bell, Bot, Check, Gauge, Inbox, MapPinned, RefreshCw, SearchCheck, Store, TrendingUp, Truck } from "lucide-react";
+import { KIND_ICON } from "@/lib/nav";
+import { IconTile } from "@/components/ui";
 import Link from "next/link";
 import { useState } from "react";
+import { motion } from "framer-motion";
+import { EASE } from "@/components/motion";
 import { useToast } from "@/components/providers";
 import { Badge, BigStats, btnCls, Button, Card, CardHead, Empty, ErrorState, Loading, More, Section, statusText, statusTone } from "@/components/ui";
 import { IndiaMap } from "@/components/IndiaMap";
@@ -104,8 +108,8 @@ export default function Overview() {
         <div className="label mb-5 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>{weekday}</span><span className="text-ink-300">/</span><span>Day after Navratri</span><span className="text-ink-300">/</span><span>West-zone returns hub</span>
         </div>
-        <h1 className="display text-[52px] text-ink-900 sm:text-[88px] xl:text-[112px]">Returns peak<br />in 5 days.</h1>
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+        <h1 className="display text-[44px] text-ink-900 sm:text-[68px] xl:text-[84px]">Returns peak<br />in 5 days.</h1>
+        <div className="mt-7 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
           <p className="max-w-2xl text-[17px] leading-relaxed text-ink-500">
             Pune, Ahmedabad and Jaipur expect about <b className="font-semibold text-ink-900">{mult(k.west_surge_multiplier)} the usual returns</b> next week.
             {short.length > 0 && <> {short.length === gaps.length ? `None of the ${gaps.length} cities` : `${short.length} of ${gaps.length} cities`} {short.length === gaps.length ? "has" : "don't have"} enough pickup vans for the busiest days.</>}
@@ -119,20 +123,20 @@ export default function Overview() {
       </section>
 
       <BigStats items={[
-        { label: "Returns vs a normal week", value: mult(k.west_surge_multiplier), sub: "Pune, Ahmedabad, Jaipur · next 7 days", tone: "bad", hint: "2× means twice as many returns as an ordinary week at this time of year." },
-        { label: "Returns expected, next 7 days", value: num(k.network_expected_7d), sub: <>Across all cities · {num(k.west_expected_7d)} in the west</> },
-        { label: "Decisions waiting", value: num(k.pending_approvals), sub: <Link href="/governance" className="text-blue-600">Open the list</Link>, tone: "warn" },
-        { label: "Returns to double-check", value: num(k.integrity_flags), sub: <Link href="/governance?tab=integrity" className="text-blue-600">Look at them</Link>, hint: "Returns where something doesn't match, like a different serial number. They get a closer look at the warehouse. No customer is refused automatically." },
+        { label: "Returns vs a normal week", icon: TrendingUp, value: mult(k.west_surge_multiplier), sub: "Pune, Ahmedabad, Jaipur · next 7 days", tone: "bad", hint: "2× means twice as many returns as an ordinary week at this time of year." },
+        { label: "Returns expected, next 7 days", icon: Gauge, value: num(k.network_expected_7d), sub: <>Across all cities · {num(k.west_expected_7d)} in the west</> },
+        { label: "Decisions waiting", icon: Inbox, value: num(k.pending_approvals), sub: <Link href="/governance" className="text-blue-600">Open the list</Link>, tone: "warn" },
+        { label: "Returns to double-check", icon: SearchCheck, value: num(k.integrity_flags), sub: <Link href="/governance?tab=integrity" className="text-blue-600">Look at them</Link>, hint: "Returns where something doesn't match, like a different serial number. They get a closer look at the warehouse. No customer is refused automatically." },
       ]} />
 
       {/* What needs you */}
-      <Section label="Needs your attention" title="Start here"
+      <Section label="Needs your attention" icon={Bell} title="Start here"
         right={<Link href="/governance" className="text-[13px] text-blue-600">All {waiting.length} decisions</Link>}>
         {ap.error ? <ErrorState error={ap.error} /> : !ap.data ? <Loading rows={0} /> : top.length === 0 ? <Empty title="Nothing waiting. You're all caught up." /> : (
-          <div className="border-t border-line">
+          <div className="overflow-hidden rounded-xl border border-line">
             {top.map((r: any, i: number) => (
-              <Link key={r.id} href={`/governance?open=${r.id}`} className="group grid grid-cols-[36px_1fr_auto] items-center gap-4 border-b border-line py-5 sm:grid-cols-[56px_1fr_220px_auto]">
-                <span className="num text-[13px] text-ink-400">{String(i + 1).padStart(2, "0")}</span>
+              <Link key={r.id} href={`/governance?open=${r.id}`} className="group grid grid-cols-[40px_1fr_auto] items-center gap-4 border-b border-line bg-white px-4 py-4 transition-colors duration-200 last:border-0 hover:bg-[#111] sm:grid-cols-[48px_1fr_220px_auto] sm:px-5">
+                <IconTile icon={KIND_ICON[r.kind] || ArrowRight} tone={r.priority === "high" ? "bad" : "neutral"} />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="label text-ink-500">{KIND_LABEL[r.kind] || r.kind}</span>
@@ -145,7 +149,7 @@ export default function Overview() {
                   {r.impact_inr ? <div>Protects <span className="num text-ink-900">{inr(r.impact_inr, true)}</span></div> : null}
                   {r.cost_inr ? <div>Costs <span className="num text-ink-900">{inr(r.cost_inr, true)}</span></div> : <div>No extra cost</div>}
                 </div>
-                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line-strong text-ink-500 transition-colors group-hover:border-paper group-hover:bg-paper group-hover:text-black"><ArrowRight className="h-4 w-4" /></span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line-strong text-ink-500 transition-all duration-300 group-hover:translate-x-0.5 group-hover:border-paper group-hover:bg-paper group-hover:text-black"><ArrowRight className="h-4 w-4" /></span>
               </Link>
             ))}
           </div>
@@ -155,12 +159,12 @@ export default function Overview() {
       {/* Where and can we cope */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
         <Card className="xl:col-span-3">
-          <CardHead label="Where" title="Where the returns will land" sub="Each circle is a city. Lines show returns being sent to a less busy warehouse."
+          <CardHead icon={MapPinned} label="Where" title="Where the returns will land" sub="Each circle is a city. Lines show returns being sent to a less busy warehouse."
             right={<Link href="/forecasting" className="text-xs font-medium text-blue-600">Forecast</Link>} />
           {geo.error ? <ErrorState error={geo.error} /> : <IndiaMap clusters={clusters} facilities={fac} flows={flows} height={440} />}
         </Card>
         <Card className="xl:col-span-2">
-          <CardHead label="Can we cope?" title="Pickup vans at the busiest days" sub="How many returns each city needs to collect per day, against what its vans can carry."
+          <CardHead icon={Truck} label="Can we cope?" title="Pickup vans at the busiest days" sub="How many returns each city needs to collect per day, against what its vans can carry."
             right={<Link href="/governance" className="text-xs font-medium text-blue-600">Van decisions</Link>} />
           <div className="space-y-5">
             {[...gaps].sort((x: any, y: any) => (y.planning_volume - y.pickup_capacity) - (x.planning_volume - x.pickup_capacity)).slice(0, 4).map((g: any) => {
@@ -173,7 +177,7 @@ export default function Overview() {
                     {over > 0 ? <span className="text-[12px] text-bad-700">short by <span className="num">{num(over)}</span> a day</span> : <Badge tone="ok">enough vans</Badge>}
                   </div>
                   <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-canvas">
-                    <div className="h-full bg-ink-900" style={{ width: `${covered * 100}%` }} />
+                    <motion.div className="h-full bg-ink-900" initial={{ width: 0 }} whileInView={{ width: `${covered * 100}%` }} viewport={{ once: true }} transition={{ duration: 0.9, ease: EASE }} />
                     {over > 0 && <div className="hatch h-full flex-1 border-l border-black bg-bad-600/40" />}
                   </div>
                   <div className="mt-1.5 flex justify-between text-[11.5px] text-ink-500">
@@ -190,19 +194,19 @@ export default function Overview() {
 
       {/* Product problems, in one line each */}
       {data.vendor_findings?.length > 0 && (
-        <Section label="Why items come back" title="Sellers with a clear quality problem"
+        <Section label="Why items come back" icon={Store} title="Sellers with a clear quality problem"
           right={<Link href="/root-cause" className="text-[13px] text-blue-600">See all product issues</Link>}>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {data.vendor_findings.slice(0, 2).map((v: any) => (
               <Card key={v.vendor_id + v.reason}>
-                <div className="label">{v.vendor_name}</div>
+                <div className="flex items-center gap-2.5"><IconTile icon={AlertTriangle} tone="bad" size="sm" /><div className="label">{v.vendor_name}</div></div>
                 <div className="mt-3 text-[18px] font-semibold leading-snug">
                   <span className="display-num text-[34px] text-bad-700">{pct(v.share)}</span> of their returns: <span className="text-ink-700">“{v.reason_label}”</span>
                 </div>
                 <div className="mt-2 text-[13px] text-ink-500">Other sellers: {pct(v.network_share)}. This is too big a gap to be chance.</div>
                 <div className="mt-4 flex items-center gap-3">
                   <div className="relative h-2 flex-1 rounded-full bg-canvas">
-                    <div className="absolute inset-y-0 left-0 rounded-full bg-bad-600" style={{ width: `${v.share * 100}%` }} />
+                    <motion.div className="absolute inset-y-0 left-0 rounded-full bg-bad-600" initial={{ width: 0 }} whileInView={{ width: `${v.share * 100}%` }} viewport={{ once: true }} transition={{ duration: 0.9, ease: EASE }} />
                     <div className="absolute -top-1 h-4 w-[2px] bg-ink-900" style={{ left: `${v.network_share * 100}%` }} title="Other sellers" />
                   </div>
                 </div>
@@ -222,7 +226,7 @@ export default function Overview() {
         {data.timeline?.length > 0 && <Timeline items={data.timeline} />}
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Card>
-            <CardHead label="Alerts" title="Things the agents flagged" right={<Badge>{data.alerts.length}</Badge>} />
+            <CardHead icon={Bell} label="Alerts" title="Things the agents flagged" right={<Badge>{data.alerts.length}</Badge>} />
             <div className="space-y-3">
               {data.alerts.map((a: any) => (
                 <div key={a.id} className="flex gap-3 border-b border-dashed border-line pb-3 last:border-0">
@@ -237,7 +241,7 @@ export default function Overview() {
             </div>
           </Card>
           <Card>
-            <CardHead label="The six agents" title="Each one has a single job" right={<Link href="/agents" className="text-xs font-medium text-blue-600">How it works</Link>} />
+            <CardHead icon={Bot} label="The six agents" title="Each one has a single job" right={<Link href="/agents" className="text-xs font-medium text-blue-600">How it works</Link>} />
             <div>
               {Object.keys(AGENT_NO).map((a) => (
                 <Link href={AGENT_HREF[a]} key={a} className="flex items-center gap-3 border-b border-line py-2.5 last:border-0 hover:bg-canvas">

@@ -115,6 +115,15 @@ def sap_status(db: Session = Depends(get_db), _: m.User = Depends(require("inter
             "links": {"launchpad": os.getenv("AI_LAUNCHPAD_URL"), "workzone": os.getenv("WORKZONE_SITE_URL"), "cap": os.getenv("CAP_URL")}}
 
 
+@router.get("/sap/overview")
+def sap_overview(db: Session = Depends(get_db)):
+    """Names and states only, for the start screen. No addresses, credentials or messages."""
+    items = services(db)
+    return {"services": [{"id": s["id"], "product": s["product"], "group": s["group"], "state": s["state"],
+                          "sandbox": bool(s.get("sandbox"))} for s in items],
+            "counts": {st_: sum(1 for i in items if i["state"] == st_) for st_ in STATES}}
+
+
 @router.post("/sap/status/test")
 def sap_test(db: Session = Depends(get_db), user: m.User = Depends(require_admin)):
     """Run a real connection test against every configured SAP service."""

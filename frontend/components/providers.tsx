@@ -1,5 +1,5 @@
 "use client";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { CheckCircle2, Info, XCircle } from "lucide-react";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -55,14 +55,16 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
 
   return (
+    <MotionConfig reducedMotion="user">
     <UserCtx.Provider value={{ meta, users, switchUser, refreshMeta, metaError, detail, setDetail }}>
       <ToastCtx.Provider value={toast}>
         {children}
         <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[360px] flex-col gap-2">
           <AnimatePresence>
             {toasts.map((t) => (
-              <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="pointer-events-auto flex items-start gap-2 rounded border border-line-strong bg-white px-3 py-2.5 text-[13px] shadow-pop">
+              <motion.div key={t.id} layout initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 24, transition: { duration: 0.18 } }} transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                className="pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line-strong bg-[#101010]/95 px-3.5 py-3 text-[13px] shadow-pop backdrop-blur">
                 {t.kind === "ok" ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-ok-600" /> : t.kind === "err" ? <XCircle className="mt-0.5 h-4 w-4 text-bad-600" /> : <Info className="mt-0.5 h-4 w-4 text-ink-500" />}
                 <span className="text-ink-900">{t.text}</span>
               </motion.div>
@@ -71,5 +73,6 @@ export function Providers({ children }: { children: ReactNode }) {
         </div>
       </ToastCtx.Provider>
     </UserCtx.Provider>
+    </MotionConfig>
   );
 }

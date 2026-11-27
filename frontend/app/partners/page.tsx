@@ -1,15 +1,104 @@
 "use client";
 import clsx from "clsx";
-import { Bell, Check, Lock, ScanLine } from "lucide-react";
+import { AlertTriangle, Bell, Check, Gauge, Lock, PackageX, Ruler, ScanLine, Smile, Star, Store, Target, Undo2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { CountUp, EASE, itemVariants } from "@/components/motion";
 import { useEffect, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { axis, C, ChartTooltip, SERIES } from "@/components/charts";
 import { useSession, useToast } from "@/components/providers";
-import { Badge, Button, Card, CardHead, Drawer, Empty, ErrorState, Field, inputCls, Loading, PageHeader, selectCls, Stat, statusText, statusTone, Tabs } from "@/components/ui";
+import { Badge, Button, Card, CardHead, IconTile, Drawer, Empty, ErrorState, Field, inputCls, Loading, PageHeader, selectCls, Stat, statusText, statusTone, Tabs } from "@/components/ui";
 import { post, useApi } from "@/lib/api";
 import { day, inr, num, pct } from "@/lib/format";
 
 const REASONS = ["SIZE_SMALL", "SIZE_LARGE", "STITCHING", "COLOUR_MISMATCH", "FABRIC_QUALITY", "NOT_AS_DESCRIBED", "DAMAGED_IN_TRANSIT", "CHANGED_MIND", "LATE_DELIVERY"];
+
+// Bands of the quality score, for reading it at a glance. The score itself comes from the backend.
+const band = (q: number) => q >= 80 ? { t: "Trusted", tone: "ok" as const } : q >= 60 ? { t: "Good", tone: "ok" as const } : q >= 40 ? { t: "Watch", tone: "warn" as const } : { t: "At risk", tone: "bad" as const };
+
+function ScoreRing({ value }: { value: number }) {
+  const r = 34, c = 2 * Math.PI * r, b = band(value);
+  const col = b.tone === "ok" ? "#3FBF7F" : b.tone === "warn" ? "#E3A33B" : "#F0583E";
+  return (
+    <div className="relative h-[92px] w-[92px] shrink-0">
+      <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
+        <circle cx="40" cy="40" r={r} fill="none" stroke="#1E1E1E" strokeWidth="6" />
+        <motion.circle cx="40" cy="40" r={r} fill="none" stroke={col} strokeWidth="6" strokeLinecap="round" strokeDasharray={c}
+          initial={{ strokeDashoffset: c }} whileInView={{ strokeDashoffset: c * (1 - value / 100) }} viewport={{ once: true }} transition={{ duration: 1.2, ease: EASE }} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="display-num text-[26px] text-ink-900"><CountUp value={String(Math.round(value))} /></span>
+        <span className="label -mt-0.5 text-[9px]">of 100</span>
+      </div>
+    </div>
+  );
+}
+
+/** One measure: your figure as a bar, other sellers' average as a tick. Lower is better unless "higher". */
+function ScoreBar({ icon: Icon, label, value, others, max = 1, higher, fmt }: { icon: any; label: string; value: number; others?: number; max?: number; higher?: boolean; fmt: (v: number) => string }) {
+  const worse = others !== undefined && (higher ? value < others * 0.9 : value > others * 1.2);
+  const better = others !== undefined && (higher ? value > others * 1.05 : value < others * 0.85);
+  return (
+    <motion.div variants={itemVariants} className="rounded-lg border border-line bg-[#090909] p-3.5 transition-colors duration-300 hover:border-line-strong">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-ink-700"><Icon className="h-3.5 w-3.5 shrink-0 text-ink-400" strokeWidth={1.75} /><span className="truncate">{label}</span></span>
+        <span className={clsx("num text-[14px] font-medium", worse ? "text-bad-700" : better ? "text-ok-700" : "text-ink-900")}>{fmt(value)}</span>
+      </div>
+      <div className="relative mt-3 h-1.5 rounded-full bg-canvas">
+        <motion.div className={clsx("absolute inset-y-0 left-0 rounded-full", worse ? "bg-bad-600" : better ? "bg-ok-600" : "bg-ink-700")}
+          initial={{ width: 0 }} whileInView={{ width: `${Math.min(1, value / max) * 100}%` }} viewport={{ once: true }} transition={{ duration: 0.9, ease: EASE }} />
+        {others !== undefined && <span className="absolute -top-1 h-3.5 w-[2px] rounded bg-paper/80" style={{ left: `${Math.min(1, others / max) * 100}%` }} title="Other sellers" />}
+      </div>
+      <div className="mt-2 text-[11px] text-ink-500">{others !== undefined ? <>Other sellers {fmt(others)}{worse ? " · worse" : better ? " · better" : ""}</> : higher ? "Higher is better" : "Lower is better"}</div>
+    </motion.div>
+  );
+}
+
+function SellerScorecard({ vendor, m, n }: { vendor: any; m: any; n: any }) {
+  const b = band(m.quality_score);
+  const p1 = (v: number) => pct(v, 1);
+  return (
+    <Card pad={false} className={clsx("overflow-hidden", vendor.qc_hold && "!border-[#4A2620]")}>
+      <div className="relative flex flex-wrap items-center gap-5 border-b border-line p-5">
+        <div className="grid-paper pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_right,black,transparent_60%)]" />
+        <span className="relative"><IconTile icon={Store} size="lg" /></span>
+        <div className="relative min-w-0 flex-1">
+          <div className="label">Seller account · {vendor.id}</div>
+          <div className="mt-1 text-[20px] font-semibold tracking-tight">{vendor.name}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-ink-500">
+            <span>{vendor.specialty} · {vendor.city}</span>
+            {vendor.qc_hold ? <Badge tone="bad"><Lock className="h-3 w-3" />Paused: shipments need a stitching check first</Badge> : <Badge tone="ok" dot>No restrictions</Badge>}
+          </div>
+        </div>
+        <div className="relative flex items-center gap-4">
+          <div className="text-right">
+            <div className="label">Quality score</div>
+            <div className="mt-1"><Badge tone={b.tone} dot>{b.t}</Badge></div>
+            <div className="mt-1.5 text-[11.5px] text-ink-500">{m.returns} returns · {num(m.orders)} orders</div>
+          </div>
+          <ScoreRing value={m.quality_score} />
+        </div>
+      </div>
+      <div className="p-5">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-[14px] font-semibold">Your scorecard, last 90 days</div>
+          <div className="text-[11.5px] text-ink-500">Worked out by ReverseFlow from returns, inspections and reviews. The tick shows other sellers.</div>
+        </div>
+        <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <ScoreBar icon={Undo2} label="Return rate" value={m.return_rate} others={n.return_rate} max={0.5} fmt={p1} />
+          <ScoreBar icon={AlertTriangle} label="Returned for quality" value={m.defect_rate} others={n.defect_rate} max={0.6} fmt={p1} />
+          <ScoreBar icon={Ruler} label="Returned for size" value={m.size_issue_rate} others={n.size_issue_rate} max={0.6} fmt={p1} />
+          <ScoreBar icon={Target} label="Avoidable returns" value={m.avoidable_rate} others={n.avoidable_rate} max={1} fmt={p1} />
+          <ScoreBar icon={PackageX} label="Graded C at inspection" value={m.grade_c_rate} max={0.5} fmt={p1} />
+          <ScoreBar icon={Star} label="Average review" value={m.avg_rating ?? 0} max={5} higher fmt={(v) => v ? v.toFixed(2) + " / 5" : "—"} />
+          <ScoreBar icon={Smile} label="Review mood" value={(m.review_sentiment + 1) / 2} max={1} higher fmt={(v) => `${Math.round(v * 100)} / 100`} />
+          <ScoreBar icon={Gauge} label="Quality score" value={m.quality_score} max={100} higher fmt={(v) => `${Math.round(v)} / 100`} />
+        </motion.div>
+      </div>
+    </Card>
+  );
+}
 
 function AlertList({ alerts, onAck }: { alerts: any[]; onAck: (id: number) => void }) {
   if (!alerts.length) return <Empty title="No alerts" icon={<Bell className="h-5 w-5" />} />;
@@ -45,22 +134,7 @@ function VendorView({ vendorId }: { vendorId?: string }) {
   const isVendor = meta?.user?.role === "vendor";
   return (
     <div className="space-y-4">
-      <Card className={clsx(data.vendor.qc_hold && "border-[#4A2620] bg-bad-50/40")}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="label">Seller account</div>
-            <div className="text-[16px] font-semibold">{data.vendor.name}</div>
-            <div className="text-[12px] text-ink-500">{data.vendor.specialty} · {data.vendor.city}</div>
-          </div>
-          {data.vendor.qc_hold ? <Badge tone="bad"><Lock className="h-3 w-3" />Paused: shipments need a stitching check first</Badge> : <Badge tone="ok" dot>No restrictions</Badge>}
-        </div>
-      </Card>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Your return rate" value={pct(m.return_rate, 1)} sub={`Other sellers: ${pct(n.return_rate, 1)}`} tone={m.return_rate > n.return_rate * 1.2 ? "bad" : undefined} />
-        <Stat label="Returned for quality" value={pct(m.defect_rate, 1)} sub={`Other sellers: ${pct(n.defect_rate, 1)}`} tone={m.defect_rate > n.defect_rate * 1.5 ? "bad" : undefined} />
-        <Stat label="Returned for size" value={pct(m.size_issue_rate, 1)} sub={`Other sellers: ${pct(n.size_issue_rate, 1)}`} tone={m.size_issue_rate > n.size_issue_rate * 1.5 ? "bad" : undefined} />
-        <Stat label="Quality score (out of 100)" value={m.quality_score} sub={`${m.returns} returns from ${num(m.orders)} orders`} />
-      </div>
+      <SellerScorecard vendor={data.vendor} m={m} n={n} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHead label="By product" title="Where your returns come from" sub="Last 90 days. Reasons come from warehouse checks and what customers wrote." />
